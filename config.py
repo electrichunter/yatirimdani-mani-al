@@ -24,6 +24,12 @@ DEMO_MODE = True  # True ise, simüle edilmiş piyasa verilerini kullanır (MT5 
 # Not: Hafıza sorunu için şimdilik sınırlı sembol ve zaman dilimi
 SYMBOLS = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F"]
 
+# Eğer bir sembolde Yahoo'da veri bulunmazsa denenebilecek alternatif semboller
+SYMBOL_FALLBACKS = {
+    "SI=F": ["XAGUSD=X", "XAG=X"],
+    "GC=F": ["XAUUSD=X", "XAU=X"]
+}
+
 # ==========================================
 # MT5 YAPILANDIRMASI  (şu anda çalışmıyor)
 # ==========================================
@@ -71,6 +77,19 @@ NEWS_IMPACT_LEVELS = ["HIGH", "MEDIUM"]  # DÜŞÜK etkili haberleri yoksay
 # 3. Aşama: LLM Kararı
 MIN_CONFIDENCE = 70  # Uygulama için minimum güven (önceden 90 idi)
 
+# Gösterim: düşük güvenli durumlarda kullanıcıyı rahatlatmak için
+# Web'de minimum gösterilecek güven seviyesi (gerçek confidence değişmez)
+MIN_DISPLAY_CONFIDENCE = 10  # yüzde olarak (ör. %10)
+
+# Sanal bakiye simülasyonu (kullanıcıya $100 ile işlem açıyormuş gibi göster)
+VIRTUAL_BALANCE = 100.0  # USD cinsinden
+# Sanal hesapta işlem açılırken risk yüzdesi (ör. 1 => %1)
+VIRTUAL_RISK_PERCENT = 1.0
+# Eğer bir LLM kararı düşük güven seviyesindeyse, kaç kez yeniden deneneceği
+# ve denemeler arasında kaç saniye bekleneceği.
+MAX_CONFIDENCE_RETRIES = 5
+CONFIDENCE_RETRY_DELAY = 5  # saniye
+
 # ==========================================
 # LLM ARKA UÇ SEÇİMİ
 # ==========================================
@@ -90,6 +109,16 @@ LLM_TEMPERATURE = 0.0  # "Rüya görmeyi" (halüsinasyonu) engellemek için SIFI
 LLM_TOP_P = 0.1        # Sadece en yüksek olasılıklı teknik sonuçlara odaklan
 LLM_MAX_TOKENS = 1024  # Detaylı raporlar için
 LLM_CONTEXT_WINDOW = 2048 # Forex verileri için yeterli, VRAM tasarrufu sağlar
+
+# LLM çoklu analiz (ensemble-like) ayarları
+LLM_ANALYSIS_RUNS = 3        # (deprecated) eski çoklu analiz ayarı
+LLM_POST_ANALYSIS_DELAY = 5  # (deprecated) kısa bekleme ayarı (saniye)
+
+# Yeni: LLM pass davranışı - tüm semboller üzerinde kaç kez tarama yapılacak
+# Örneğin 3: tüm sembolleri baştan sona tarar, sonra tekrar, sonra tekrar, sonrasında bekler
+LLM_PASS_RUNS = 3
+# Bekleme süresi (saniye) tüm pass'lerden sonra (ör. 5 dakika = 300)
+LLM_PASS_WAIT_SECONDS = 300
 
 # ==========================================
 # RAG YAPILANDIRMASI
@@ -122,3 +151,22 @@ MAX_VRAM_MB = 3500         # Sistem stabilitesi için 4GB'ın biraz altında (3.
 LAZY_LOAD_LLM = False      # RAG olmadığı için doğrudan LLM ile başlayacağız
 CACHE_EMBEDDINGS = False   # Vektörleme yapılmayacağı için bellek harcamasın
  
+# ==========================================
+# EK: Re-entry / Pending trade management
+# ==========================================
+# Eğer bir pozisyon açıldıktan sonra kapanana kadar beklenmesi isteniyorsa
+# ve eğer pozisyon 2 günden uzun süre açık kalırsa LLM'e kapatma kararı sorulsun.
+CLOSE_PENDING_AFTER_DAYS = 2
+
+# Pozisyon kapandıktan sonra aynı fiyata yakın yeni pozisyon açılmasını engellemek
+# için kaç saat beklenmesi gerektiği
+REENTRY_COOLDOWN_HOURS = 5
+
+# Fiyat toleransı (mutlak fark veya yüzde olarak yorumlanır). Örn: 0.001 ~ 0.1%
+REENTRY_PRICE_TOLERANCE = 0.001
+
+# Dashboard auto-start kontrolü: eğer False ise `main.py` dashboard'u arka planda başlatmaz
+START_DASHBOARD = True
+
+# Minimum lot gösterimi (fallback) - UI ve plan için
+MIN_DISPLAY_LOT = 0.01

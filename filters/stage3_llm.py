@@ -75,27 +75,26 @@ class LLMDecisionEngine:
                 logger.warning(f"Öğrenilmiş desenler yüklenemedi: {str(e)}")
             
             # ========================================
-            # LLM: Karar üret (Öğrenilmiş desenlerle)
+            # LLM: Tek seferlik analiz (ana döngü pass'lerinde kullanılacak)
+            # Bu metot her çağrıldığında tek bir LLM çalıştırılır, kaydedilir ve
+            # öğrenme sistemi için pattern analizi başlatılır.
             # ========================================
-            
+
             system_prompt = get_system_prompt()
-            # RAG devre dışı olduğu için boş liste gönderiyoruz
             user_prompt = build_decision_prompt(context, [], learned_patterns)
-            
+
             logger.debug(f"🤖 Karar için LLM ({self.llm.model_name}) çağrılıyor...")
-            
-            # LLM yanıtını al
+
             response_text = self.llm.generate(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=config.LLM_TEMPERATURE
             )
-            
-            # HAM GÜNLÜK AKIŞI
+
             logger.info("=" * 30 + " HAM LLM YANITI " + "=" * 30)
             logger.info(response_text if response_text else "BOŞ YANIT")
             logger.info("=" * 78)
-            
+
             if not response_text:
                 logger.error("❌ LLM yanıt üretemedi")
                 return {
@@ -107,13 +106,8 @@ class LLMDecisionEngine:
                     "take_profit": 0,
                     "risk_reward_ratio": 0
                 }
-            
-            # ========================================
-            # Yanıtı doğrula ve ayrıştır
-            # ========================================
-            
+
             decision_data = validate_llm_response(response_text)
-            
             if not decision_data:
                 logger.error("❌ LLM yanıt doğrulaması başarısız")
                 return {
@@ -125,31 +119,49 @@ class LLMDecisionEngine:
                     "take_profit": 0,
                     "risk_reward_ratio": 0
                 }
-            
-            # ========================================
-            # Güven eşiğini uygula
-            # ========================================
-            
-            if decision_data["confidence"] < config.MIN_CONFIDENCE:
-                logger.info(f"⚠️ Güven %{decision_data['confidence']}, eşiğin (%{config.MIN_CONFIDENCE}) altında")
+
+            # Eğer güven düşükse, BEKLEMEDE KAL olarak işaretle (gösterim için)
+            if decision_data.get("confidence", 0) < config.MIN_CONFIDENCE:
+                logger.info(f"⚠️ Güven %{decision_data.get('confidence')}, eşiğin (%{config.MIN_CONFIDENCE}) altında")
                 decision_data["decision"] = "BEKLEMEDE KAL"
                 current_reason = decision_data.get("reasoning") or ""
-                decision_data["reasoning"] = f"Güven seviyesi (%{decision_data['confidence']}) çok düşük. " + current_reason
-                # Fiyatları 'BEKLEMEDE' olarak işaretle (Dashboard'da görünmesi için)
+                decision_data["reasoning"] = f"Güven seviyesi (%{decision_data.get('confidence',0)}) çok düşük. " + current_reason
                 decision_data["entry_price"] = "BEKLEMEDE"
                 decision_data["stop_loss"] = "BEKLEMEDE"
                 decision_data["take_profit"] = "BEKLEMEDE"
-            
-            # Sonucu günlükle
+
+            # Kaydet: Öğrenme sistemine bir karar kaydı bırak
+            try:
+                direction_for_log = decision_data.get('decision', context.get('direction', 'N/A'))
+                self.learning_system.log_trade_decision(
+                    symbol=symbol,
+                    direction=direction_for_log,
+                    context={
+                        'technical_score': context.get('technical_score'),
+                        'news_sentiment': context.get('news_sentiment'),
+                        'technical_signals': context.get('technical_signals', {})
+                    },
+                    llm_decision=decision_data,
+                    dry_run=config.DRY_RUN
+                )
+            except Exception as e:
+                logger.warning(f"Öğrenme kaydı başarısız: {e}")
+
+            # Küçük örnek eşiğiyle pattern analizi çalıştır
+            try:
+                self.learning_system.analyze_patterns(min_samples=1)
+            except Exception:
+                pass
+
+            # Kısa bekleme yok; ana döngü pass'leri arasında bekleme uygulanacak
             result_for_log = {
-                "pass": decision_data["decision"] != "PASS",
-                "confidence": decision_data["confidence"],
-                "reason": decision_data["reasoning"]
+                "pass": decision_data.get("decision") != "PASS",
+                "confidence": decision_data.get("confidence", 0),
+                "reason": decision_data.get("reasoning", "")
             }
             log_trade_decision(logger, symbol, 3, result_for_log)
-            
+
             return decision_data
-        
         except Exception as e:
             logger.error(f"❌ LLM karar motorunda hata: {str(e)}")
             return {
@@ -161,3 +173,88 @@ class LLMDecisionEngine:
                 "take_profit": 0,
                 "risk_reward_ratio": 0
             }
+
+    def self_assess(self, context):
+        """
+        Eğer LLM sürekli 0 güven döndürüyorsa, LLM kendi başına kapsamlı bir analiz yapar.
+        Bu metot önce LLM'e daha zengin bir 'self-assess' prompt'u gönderir; eğer LLM
+        uygun yanıt vermezse basit bir heuristic fallback ile karar üretir.
+        """
+        symbol = context.get('symbol', 'BILINMIYOR')
+        system_prompt = get_system_prompt()
+
+        # Derinlemesine kendi analizini iste
+        user_prompt = """
+Lütfen aşağıdaki verilerle kapsamlı bir ticaret analizi yap:
+- Teknik sinyaller ve teknik skor: {technical_score}
+- Teknik sinyaller ayrıntısı: {technical_signals}
+- Haber duygu skoru: {news_sentiment}
+- Önemli haberler: {relevant_news}
+- Yaklaşan ekonomik olaylar: {upcoming_events}
+- Mevcut fiyat: {current_price}
+- Önerilen yön (ön analizden): {direction}
+
+Analizi teknik, temel ve psikolojik boyutlarda kısa ve net şekilde yap. Sonuçta JSON formatında
+şu alanları ver: decision (BUY/SELL/BEKLE), confidence (0-100), reasoning, entry_price, stop_loss, take_profit, timeframe, expected_duration.
+Eğer kesin karar verilemiyorsa BEKLE ver.
+""".format(
+            technical_score=context.get('technical_score'),
+            technical_signals=context.get('technical_signals'),
+            news_sentiment=context.get('news_sentiment'),
+            relevant_news=context.get('relevant_news'),
+            upcoming_events=context.get('upcoming_events'),
+            current_price=context.get('current_price'),
+            direction=context.get('direction')
+        )
+
+        try:
+            logger.info(f"🔎 {symbol} için LLM self-assessment başlatılıyor...")
+            response_text = self.llm.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                temperature=0.0
+            )
+
+            logger.info("LLM self-assess yanıtı alındı")
+            decision_data = validate_llm_response(response_text)
+            if decision_data:
+                decision_data['reasoning'] = f"[LLM Self-Assessment] {decision_data.get('reasoning','') }"
+                return decision_data
+        except Exception as e:
+            logger.warning(f"LLM self-assess hata: {e}")
+
+        # Fallback heuristic
+        try:
+            tech = context.get('technical_score', 0) or 0
+            news = context.get('news_sentiment', 0) or 0
+            direction = context.get('direction', 'BUY')
+
+            # Basit puanlama: teknik ağırlıklı
+            score = int(max(0, min(100, tech * 0.7 + (news + 50) * 0.3)))
+
+            if tech >= 50 or score >= 50:
+                decision = direction
+            else:
+                # Eğer teknik zayıf ama haber çok pozitif/negatif, o yöne git
+                if news >= 40:
+                    decision = 'BUY'
+                elif news <= -40:
+                    decision = 'SELL'
+                else:
+                    decision = 'BEKLE'
+
+            reasoning = f"Heuristic self-assess => Teknik: {tech}/100, Haber: {news}, hesaplanan puan: {score}."
+            # Belirgin giriş/SL/TP hesaplayıcı yoksa None bırak
+            return {
+                'decision': decision,
+                'confidence': score if decision != 'BEKLE' else 10,
+                'reasoning': reasoning,
+                'entry_price': context.get('current_price') or 0,
+                'stop_loss': None,
+                'take_profit': None,
+                'timeframe': context.get('timeframe', 'H1'),
+                'expected_duration': 'Kısa',
+            }
+        except Exception as e:
+            logger.error(f"Self-assess fallback hata: {e}")
+            return None

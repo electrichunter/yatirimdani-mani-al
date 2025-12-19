@@ -95,8 +95,41 @@ class UIFormatter:
         # Web için kaydet
         self.save_result_for_web(symbol, signal_data)
 
-    def save_result_for_web(self, symbol, signal_data):
-        """Sonuçları web dashboard'u için JSON dosyasına kaydeder"""
+    def save_result_for_web(self, symbol, signal_data, archive=False):
+        """Sonuçları web dashboard'u için JSON dosyasına kaydeder.
+
+        Eğer `archive=True` ise aynı sonucu `data/analysis_archive.json` dosyasına
+        tarih/saat bilgisi ile ekleriz. Bu, ileriye dönük test ve doğrulama için kullanılır.
+        """
+        # Augment signal_data with presentation-friendly fields
+        try:
+            real_conf = float(signal_data.get('confidence', 0) or 0)
+        except Exception:
+            real_conf = 0.0
+
+        # Presented confidence: show a minimum friendly value in the UI
+        try:
+            import config
+            min_display = getattr(config, 'MIN_DISPLAY_CONFIDENCE', 0)
+        except Exception:
+            min_display = 0
+
+        presented_conf = max(real_conf, float(min_display))
+        signal_data['presented_confidence'] = round(presented_conf, 2)
+        signal_data['low_confidence'] = True if real_conf < getattr(config, 'MIN_CONFIDENCE', 70) else False
+
+        # Add a concise user-facing message explaining technical weakness (if any)
+        try:
+            signal_data['user_message'] = self._compose_user_message(signal_data, real_conf)
+        except Exception:
+            signal_data['user_message'] = ''
+
+        # Virtual balance simulation (shows how a $100 account would size this trade)
+        try:
+            signal_data['virtual'] = self._compute_virtual(signal_data)
+        except Exception:
+            signal_data['virtual'] = {}
+
         result = {
             "symbol": symbol,
             "display_name": self.get_display_name(symbol),
@@ -121,6 +154,27 @@ class UIFormatter:
         with open(self.results_path, "w", encoding="utf-8") as f:
             json.dump(self.all_results, f, ensure_ascii=False, indent=2)
 
+        # Eğer arşivlenmesi istenmişse, özel bir arşiv dosyasına ekle
+        if archive:
+            try:
+                archive_path = os.path.join(os.path.dirname(self.results_path), 'analysis_archive.json')
+                os.makedirs(os.path.dirname(archive_path), exist_ok=True)
+                if os.path.exists(archive_path):
+                    with open(archive_path, 'r', encoding='utf-8') as af:
+                        archive_list = json.load(af)
+                else:
+                    archive_list = []
+
+                # Yeni girdiyi başa ekle (en son ilk görünür)
+                archive_list.insert(0, result)
+                # Arşiv boyutunu sınırlayalım
+                archive_list = archive_list[:5000]
+
+                with open(archive_path, 'w', encoding='utf-8') as af:
+                    json.dump(archive_list, af, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
     def save_news_for_web(self, news_list, news_path="data/news_results.json"):
         """Haberleri web dashboard'u için JSON dosyasına kaydeder"""
         os.makedirs(os.path.dirname(news_path), exist_ok=True)
@@ -139,6 +193,138 @@ class UIFormatter:
             
         with open(news_path, "w", encoding="utf-8") as f:
             json.dump(formatted_news, f, ensure_ascii=False, indent=2)
+
+    def _compose_user_message(self, signal_data, real_confidence: float):
+        """Kullanıcıya gösterilecek kısa Türkçe açıklamayı oluşturur.
+        Teknik veriler üzerinden olası nedenleri açıklar ve nazikçe öneride bulunur.
+        """
+        try:
+            import config
+        except Exception:
+            config = None
+
+        parts = []
+        if real_confidence == 0:
+            parts.append("Güven seviyesi %0 — şu an sinyal zayıf veya çelişkili.")
+        elif real_confidence < getattr(config, 'MIN_CONFIDENCE', 70):
+            parts.append(f"Güven seviyesi düşük (%{real_confidence:.0f}).")
+
+        ind = signal_data.get('indicators', {}) or {}
+        def find_key(*keys):
+            for k in keys:
+                if k in signal_data:
+                    return signal_data[k]
+                if k in ind:
+                    return ind[k]
+            return None
+
+        rsi_h1 = find_key('rsi_h1', 'RSI_H1', 'rsi')
+        macd_hist = find_key('macd_hist', 'MACD_HIST', 'macd_histogram')
+        macd_status = find_key('macd_status', 'MACD_STATUS')
+        trend_h1 = find_key('trend_h1', 'TREND_H1')
+        trend_h4 = find_key('trend_h4', 'TREND_H4')
+        trend_d1 = find_key('trend_d1', 'TREND_D1')
+
+        if rsi_h1 is not None:
+            try:
+                r = float(rsi_h1)
+                if r > 80:
+                    parts.append(f"RSI (H1) yüksek: {r:.2f} → aşırı alım, düzeltme riski.")
+                elif r < 20:
+                    parts.append(f"RSI (H1) düşük: {r:.2f} → aşırı satım, volatil toparlanma riski.")
+            except Exception:
+                pass
+
+        if macd_status:
+            parts.append(f"MACD durumu: {str(macd_status)}.")
+        elif macd_hist is not None:
+            try:
+                mh = float(macd_hist)
+                if mh > 0:
+                    parts.append("MACD histogram pozitif; momentum sınırlı olabilir.")
+                else:
+                    parts.append("MACD histogram negatif; satış baskısı gözleniyor.")
+            except Exception:
+                pass
+
+        trends = []
+        if trend_h1: trends.append(f"H1:{trend_h1}")
+        if trend_h4: trends.append(f"H4:{trend_h4}")
+        if trend_d1: trends.append(f"D1:{trend_d1}")
+        if trends:
+            parts.append("Trend analizi: " + ", ".join(trends) + ".")
+
+        rr = None
+        if 'rr_ratio' in signal_data and signal_data['rr_ratio'] is not None:
+            try:
+                rr = float(signal_data['rr_ratio'])
+            except Exception:
+                rr = None
+        else:
+            # Try parse from take_profit / stop_loss / entry
+            try:
+                tp = float(signal_data.get('take_profit'))
+                sl = float(signal_data.get('stop_loss'))
+                entry = float(signal_data.get('entry_price'))
+                if entry != sl:
+                    rr = abs(tp - entry) / abs(entry - sl)
+            except Exception:
+                rr = None
+
+        if rr is not None:
+            parts.append(f"Risk/Ödül (R:R) ≈ {rr:.2f}:1.")
+            try:
+                min_rr = getattr(config, 'MIN_RISK_REWARD_RATIO', 1.5)
+                if rr < min_rr:
+                    parts.append("R:R düşük; kazanç potansiyeli riskle uyumlu değil.")
+            except Exception:
+                pass
+
+        # Final reassurance and recommendation
+        parts.append("Öneri: küçük bir simülasyon pozisyonu açılabilir veya beklemek daha güvenli olabilir.")
+
+        return ' '.join(parts)
+
+    def _compute_virtual(self, signal_data):
+        """Sanal bakiye ile pozisyon büyüklüğü ve beklenen kazancı hesapla."""
+        try:
+            import config
+        except Exception:
+            config = None
+
+        vb = getattr(config, 'VIRTUAL_BALANCE', 100.0)
+        vr = getattr(config, 'VIRTUAL_RISK_PERCENT', 1.0)
+        risk_amount = (vb * vr) / 100.0
+
+        # Compute rr
+        rr = None
+        if 'rr_ratio' in signal_data and signal_data['rr_ratio'] is not None:
+            try:
+                rr = float(signal_data['rr_ratio'])
+            except Exception:
+                rr = None
+        else:
+            try:
+                tp = float(signal_data.get('take_profit'))
+                sl = float(signal_data.get('stop_loss'))
+                entry = float(signal_data.get('entry_price'))
+                if entry != sl:
+                    rr = abs(tp - entry) / abs(entry - sl)
+            except Exception:
+                rr = None
+
+        expected_profit = None
+        if rr is not None:
+            expected_profit = round(risk_amount * rr, 4)
+
+        return {
+            'virtual_balance': round(float(vb), 2),
+            'virtual_risk_percent': float(vr),
+            'risk_amount': round(float(risk_amount), 4),
+            'rr': round(float(rr), 4) if rr is not None else None,
+            'expected_profit_if_tp': expected_profit,
+            'expected_loss_if_sl': round(float(risk_amount), 4)
+        }
 
     def print_loop_status(self, wait_time):
         """Döngü durumunu yazdırır"""

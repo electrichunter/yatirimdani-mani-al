@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 import logging
+import config
 
 class YFinanceBroker:
     """
@@ -47,15 +48,33 @@ class YFinanceBroker:
             period = "1y" # Varsayılan
             
         try:
+            tried = [symbol]
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
-            
+
+            # Eğer boş geldiyse fallbacklere bak
             if df is None or df.empty:
-                # Periyot çok uzunsa güvenli varsayılanlarla tekrar dene
+                # Önce tekil 1y denemesi
                 df = ticker.history(period="1y", interval=interval) if period != "1y" else None
-                if df is None or df.empty:
-                    self.logger.warning(f"{symbol} için {interval} aralığında veri bulunamadı")
-                    return None
+
+            # Eğer yine boşsa config içinde eşleşen fallback sembollerini dene
+            if df is None or df.empty:
+                fallbacks = config.SYMBOL_FALLBACKS.get(symbol, [])
+                for alt in fallbacks:
+                    try:
+                        self.logger.info(f"{symbol} için veri bulunamadı, alternatif {alt} deneniyor")
+                        alt_t = yf.Ticker(alt)
+                        df = alt_t.history(period=period, interval=interval)
+                        tried.append(alt)
+                        if df is not None and not df.empty:
+                            self.logger.info(f"Alternatif sembol {alt} ile veri alındı (kullanılıyor: {alt})")
+                            break
+                    except Exception:
+                        continue
+
+            if df is None or df.empty:
+                self.logger.warning(f"{symbol} için {interval} aralığında veri bulunamadı (denenen: {tried})")
+                return None
                 
             # Mevcut kodla uyumluluk için özelleştir (MTBroker formatı)
             # YF döner: Open, High, Low, Close, Volume, Dividends, Stock Splits
@@ -100,17 +119,51 @@ class YFinanceBroker:
     def get_current_price(self, symbol):
         """En son fiyatı al"""
         try:
+            tried = [symbol]
             ticker = yf.Ticker(symbol)
-            # Döviz çiftleri bazen info kısmında sorunlu olabildiği için önce geçmişe bak
-            df = ticker.history(period="1d", interval="1m")
-            if not df.empty:
+            # Önce kısa geçmişe bak
+            df = None
+            try:
+                df = ticker.history(period="1d", interval="1m")
+            except Exception:
+                df = None
+
+            if df is not None and not df.empty:
                 return float(df['Close'].iloc[-1])
-            
-            # Yedek olarak fast_info kullan
-            info = ticker.fast_info
-            if hasattr(info, 'last_price') and info.last_price is not None:
-                 return float(info.last_price)
-                
+
+            # fast_info güvenli biçimde oku
+            try:
+                info = ticker.fast_info
+                last = getattr(info, 'last_price', None) or getattr(info, 'last', None)
+                if last is not None:
+                    return float(last)
+            except Exception:
+                pass
+
+            # Eğer burada da yoksa fallback sembollerini dene
+            fallbacks = config.SYMBOL_FALLBACKS.get(symbol, [])
+            for alt in fallbacks:
+                try:
+                    self.logger.info(f"{symbol} için fiyat bulunamadı, alternatif {alt} deneniyor")
+                    tried.append(alt)
+                    alt_t = yf.Ticker(alt)
+                    try:
+                        alt_df = alt_t.history(period="1d", interval="1m")
+                        if alt_df is not None and not alt_df.empty:
+                            return float(alt_df['Close'].iloc[-1])
+                    except Exception:
+                        pass
+                    try:
+                        alt_info = alt_t.fast_info
+                        alt_last = getattr(alt_info, 'last_price', None) or getattr(alt_info, 'last', None)
+                        if alt_last is not None:
+                            return float(alt_last)
+                    except Exception:
+                        pass
+                except Exception:
+                    continue
+
+            self.logger.warning(f"{symbol} için fiyat alınamadı (denenen: {tried})")
             return None
         except Exception as e:
             self.logger.error(f"{symbol} için fiyat alma hatası: {e}")

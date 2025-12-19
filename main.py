@@ -28,6 +28,11 @@ from utils.formatter import UIFormatter
 logger = setup_logger("SniperBot")
 ui = UIFormatter()
 
+# Global counter for consecutive zero-confidence LLM results per symbol
+ZERO_CONF_COUNTERS = {}
+# Global counter for analysis runs per symbol (to tag saved analyses)
+ANALYSIS_COUNTERS = {}
+
 def select_mode():
     """Etkileşimli mod seçimi"""
     print("\n" + "=" * 60)
@@ -232,14 +237,129 @@ def process_symbol(symbol, components):
     
     # LLM'e Sor: "Bu işlemi yapmalı mıyım?"
     stage3_result = llm_engine.make_decision(context)
+
+    # Kaydet: her LLM analizi hemen web'e kaydedilsin (intermediate)
+    try:
+        ANALYSIS_COUNTERS[symbol] = ANALYSIS_COUNTERS.get(symbol, 0) + 1
+        analysis_meta = {
+            "analysis_index": ANALYSIS_COUNTERS[symbol],
+            "analysis_type": "llm",
+            "analysis_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "intermediate": True
+        }
+        temp_save = dict(stage3_result)
+        # ensure entry price present for display
+        temp_save.setdefault('entry_price', float(market_data.get('current_price', 0) or 0))
+        temp_save.update(analysis_meta)
+        ui.save_result_for_web(symbol, temp_save, archive=True)
+    except Exception:
+        pass
+
+    # Eğer 0 güven döndüyse sayacı arttır, aksi halde sıfırla
+    try:
+        if float(stage3_result.get('confidence', 0)) == 0:
+            ZERO_CONF_COUNTERS[symbol] = ZERO_CONF_COUNTERS.get(symbol, 0) + 1
+        else:
+            ZERO_CONF_COUNTERS[symbol] = 0
+    except Exception:
+        ZERO_CONF_COUNTERS[symbol] = 0
+
+    # Eğer art arda 5 kez 0 geldiyse LLM kendi kapsamlı analizini yapıp force_publish ile döner
+    if ZERO_CONF_COUNTERS.get(symbol, 0) >= 5:
+        logger.info(f"⚠️ {symbol} için 5 kez art arda 0 güven bulundu — LLM self_assess tetikleniyor")
+        self_assess = llm_engine.self_assess(context)
+        if self_assess:
+            self_assess['force_publish'] = True
+            stage3_result = self_assess
+            logger.info(f"ℹ️ {symbol} - LLM self-assess sonucu: {stage3_result.get('decision')} (%{stage3_result.get('confidence',0)})")
+            # Save self-assess analysis to web results as well
+            try:
+                ANALYSIS_COUNTERS[symbol] = ANALYSIS_COUNTERS.get(symbol, 0) + 1
+                analysis_meta = {
+                    "analysis_index": ANALYSIS_COUNTERS[symbol],
+                    "analysis_type": "self_assess",
+                    "analysis_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "intermediate": True,
+                    "force_publish": True
+                }
+                temp_save = dict(stage3_result)
+                temp_save.setdefault('entry_price', float(market_data.get('current_price', 0) or 0))
+                temp_save.update(analysis_meta)
+                ui.save_result_for_web(symbol, temp_save, archive=True)
+            except Exception:
+                pass
+        ZERO_CONF_COUNTERS[symbol] = 0
     
     if stage3_result["decision"] == "PASS":
         logger.info(f"❌ {symbol} - 3. Aşama REDDEDİLDİ: {stage3_result['reasoning']}")
         return False
     
-    if stage3_result["confidence"] < config.MIN_CONFIDENCE:
-        logger.info(f"❌ {symbol} - Düşük güven seviyesi ({stage3_result['confidence']}% < {config.MIN_CONFIDENCE}%)")
-        return False
+    # Eğer LLM düşük güven verirse, belirlenen sayıda yeniden dene (force_publish varsa atla).
+    if stage3_result.get("confidence", 0) < config.MIN_CONFIDENCE and not stage3_result.get('force_publish', False):
+        logger.info(f"❌ {symbol} - İlk karar düşük güven seviyesi ({stage3_result['confidence']}% < {config.MIN_CONFIDENCE}%). Yeniden denenecek...")
+
+        retry_count = 0
+        improved = False
+        last_result = stage3_result
+
+        while retry_count < getattr(config, 'MAX_CONFIDENCE_RETRIES', 5):
+            retry_count += 1
+            try:
+                time.sleep(getattr(config, 'CONFIDENCE_RETRY_DELAY', 5))
+                # Güncel bağlam için fiyatı güncelle
+                market_data = data_fetcher.get_multi_timeframe_data(
+                    symbol=symbol,
+                    timeframes=list(config.TIMEFRAMES.keys())
+                )
+                context["current_price"] = market_data.get("current_price", context.get("current_price"))
+
+                # Yeni karar al
+                last_result = llm_engine.make_decision(context)
+                logger.info(f"🔁 {symbol} - Yeniden deneme {retry_count}: Güven %{last_result.get('confidence',0)}")
+                # Save this retry analysis to web results
+                try:
+                    ANALYSIS_COUNTERS[symbol] = ANALYSIS_COUNTERS.get(symbol, 0) + 1
+                    analysis_meta_r = {
+                        "analysis_index": ANALYSIS_COUNTERS[symbol],
+                        "analysis_type": "retry",
+                        "analysis_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "intermediate": True,
+                        "retry_number": retry_count
+                    }
+                    temp_save_r = dict(last_result)
+                    temp_save_r.setdefault('entry_price', float(market_data.get('current_price', 0) or 0))
+                    temp_save_r.update(analysis_meta_r)
+                    ui.save_result_for_web(symbol, temp_save_r, archive=True)
+                except Exception:
+                    pass
+
+                if last_result.get("confidence", 0) >= config.MIN_CONFIDENCE:
+                    improved = True
+                    stage3_result = last_result
+                    logger.info(f"✅ {symbol} - Güven arttı: %{stage3_result['confidence']}")
+                    break
+            except Exception as e:
+                logger.error(f"⚠️ {symbol} - Güven yeniden deneme hatası: {e}")
+
+        if not improved:
+            # 5 denemeden sonra da artmadıysa düşük güven olarak işaretle ve web'e kaydet
+            logger.info(f"❌ {symbol} - Düşük güven seviyesi devam ediyor ({last_result.get('confidence',0)}%). Web'de 'düşük güven' olarak işaretlenecek.")
+            signal_info = {
+                "decision": f"DÜŞÜK GÜVEN ({last_result.get('confidence',0)}%)",
+                "confidence": last_result.get('confidence', 0),
+                "reasoning": last_result.get('reasoning', 'Gerekçe yok'),
+                "entry_price": float(market_data.get('current_price', 0)),
+                "stop_loss": None,
+                "take_profit": None,
+                "timeframe": last_result.get('timeframe', 'H1'),
+                "expected_duration": last_result.get('expected_duration', 'Bilinmiyor'),
+                "rr_ratio": None,
+                "low_confidence": True
+            }
+            ui.save_result_for_web(symbol, signal_info)
+            return False
+    elif stage3_result.get('force_publish', False):
+        logger.info(f"ℹ️ {symbol} - Force publish izni verildi; düşük güven yinede işleme alınacak.")
     
     # UI için sonucu hazırla
     signal_info = {
@@ -345,6 +465,7 @@ def process_symbol(symbol, components):
                 direction=stage3_result["decision"],
                 context=learning_context,
                 llm_decision=stage3_result,
+                position_size=position_size,
                 dry_run=config.DRY_RUN
             )
         except Exception as e:
@@ -356,7 +477,44 @@ def process_symbol(symbol, components):
     
     # Gerçek işlemi gerçekleştir
     logger.info("💰 Gerçek işlem uygulanıyor...")
-    
+    # Re-entry cooldown kontrolü: aynı fiyata yakın tekrar açılmasını engelle
+    try:
+        if "llm_engine" in components and components["llm_engine"] is not None:
+            allowed, reason = components["llm_engine"].learning_system.is_entry_allowed(symbol, entry)
+            if not allowed:
+                logger.info(f"❌ Yeni işlem engellendi: {reason}")
+                # Kaydı güncelle: trade history'de PENDING yerine SKIPPED (veya benzeri)
+                try:
+                    # If we have just logged the trade, mark it as SKIPPED
+                    # Find the most recent PENDING trade for this symbol and entry and mark as SKIPPED
+                    pending = components["llm_engine"].learning_system.get_pending_trades()
+                    for t in pending:
+                        if t.get('symbol') == symbol and abs((t.get('entry_price') or 0) - (entry or 0)) <= getattr(config, 'REENTRY_PRICE_TOLERANCE', 0.001):
+                            components["llm_engine"].learning_system.update_trade_outcome(t['id'], 'BREAKEVEN', profit_pips=0, profit_amount=0, close_price=entry)
+                            break
+                except Exception:
+                    pass
+                return False
+    except Exception as e:
+        logger.error(f"Cooldown kontrolünde hata: {e}")
+
+    # Duplicate pending check: aynı symbol/direction ve yakın giriş fiyatı varsa tekrar açma
+    try:
+        if "llm_engine" in components and components["llm_engine"] is not None:
+            pending = components["llm_engine"].learning_system.get_pending_trades()
+            for t in pending:
+                try:
+                    if t.get('symbol') == symbol and t.get('direction') == stage3_result["decision"]:
+                        existing_entry = t.get('entry_price') or 0
+                        tol = getattr(config, 'REENTRY_PRICE_TOLERANCE', 0.001)
+                        if abs((existing_entry or 0) - (entry or 0)) <= tol:
+                            logger.info(f"❌ Aynı pozisyon zaten açık/pending: {symbol} {stage3_result['decision']} yakın fiyat {existing_entry}. Yeni emir atılmayacak.")
+                            return False
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.error(f"Duplicate pending kontrol hatası: {e}")
+
     order = broker.place_order(
         symbol=symbol,
         action=stage3_result["decision"],
@@ -395,11 +553,17 @@ def main():
     else:
         select_mode()
     
-    # Dashboard'u arka planda başlat
-    logger.info("🌐 Dashboard başlatılıyor...")
-    threading.Thread(target=run_dashboard_server, daemon=True).start()
-    time.sleep(2) # Sunucunun kalkması için kısa bir süre bekle
-    webbrowser.open("http://localhost:8000/dashboard.html")
+    # Dashboard'u arka planda başlat (konfigürasyonla kontrol edilir)
+    if getattr(config, 'START_DASHBOARD', True):
+        logger.info("🌐 Dashboard başlatılıyor...")
+        threading.Thread(target=run_dashboard_server, daemon=True).start()
+        time.sleep(2) # Sunucunun kalkması için kısa bir süre bekle
+        try:
+            webbrowser.open("http://localhost:8000/dashboard.html")
+        except Exception:
+            pass
+    else:
+        logger.info("ℹ️ Dashboard otomatik başlatma devre dışı (config.START_DASHBOARD=False)")
 
     # Sistemi başlat
     components = initialize_system()
@@ -436,18 +600,64 @@ def main():
                 logger.debug(f"ℹ️ Haberler güncel. Bir sonraki derin tarama {next_update/3600:.1f} saat sonra.")
 
             # --- SİSTEM ÖĞRENİMİ: BEKLEYEN İŞLEMLERİ DENETLE ---
-            if "llm_engine" in components and components["llm_engine"] is not None:
+            # Read monitoring state (pause/resume) from disk
+            try:
+                ms_path = os.path.join(os.getcwd(), 'data', 'monitoring_state.json')
+                monitoring_state = { 'paused': False }
+                if os.path.exists(ms_path):
+                    with open(ms_path, 'r', encoding='utf-8') as mf:
+                        monitoring_state = json.load(mf)
+            except Exception:
+                monitoring_state = { 'paused': False }
+
+            # If monitoring paused, skip pending trade checks
+            if monitoring_state.get('paused'):
+                logger.debug("⏸️ Monitoring paused — bekleyen işlemler denetlenmiyor.")
+            else:
+                # If we just resumed (resumed_at present), run reconciliation
                 try:
-                    pending_trades = components["llm_engine"].learning_system.get_pending_trades()
-                    if pending_trades:
-                        logger.info(f"🔍 {len(pending_trades)} adet bekleyen işlem denetleniyor...")
+                    if "resumed_at" in monitoring_state:
+                        logger.info("🔁 Monitoring resumed — reconcile başlatılıyor...")
+                        if "llm_engine" in components and components["llm_engine"] is not None:
+                            try:
+                                # Provide a price getter that returns float current price or None
+                                def _price_getter(sym):
+                                    try:
+                                        p = data_fetcher.get_current_price(sym)
+                                        if isinstance(p, dict):
+                                            return p.get('mid')
+                                        return float(p)
+                                    except Exception:
+                                        return None
+                                components["llm_engine"].learning_system.reconcile_pending_trades_on_resume(_price_getter)
+                            except Exception as e:
+                                logger.error(f"Reconcile hatası: {e}")
+                        # Remove resumed_at so reconciliation runs only once
+                        try:
+                            os.remove(ms_path)
+                        except Exception:
+                            pass
+
+                except Exception as e:
+                    logger.error(f"Monitoring resume kontrol hatası: {e}")
+
+                if "llm_engine" in components and components["llm_engine"] is not None:
+                    try:
+                        pending_trades = components["llm_engine"].learning_system.get_pending_trades()
+                        if pending_trades:
+                            logger.info(f"🔍 {len(pending_trades)} adet bekleyen işlem denetleniyor...")
                         for trade in pending_trades:
-                            # Güncel fiyatı al (YFinance)
-                            ticker = data_fetcher.broker.get_ticker(trade["symbol"])
-                            if ticker is None: continue
-                            
-                            price = ticker.info.get("regularMarketPrice")
-                            if price is None: continue
+                            # Güncel fiyatı al (DataFetcher üzerinden, daha güvenli)
+                            price_info = data_fetcher.get_current_price(trade["symbol"])
+                            if price_info is None: continue
+
+                            price = price_info.get("mid") if isinstance(price_info, dict) else None
+                            if price is None:
+                                # Eğer dict değilse, belki broker doğrudan fiyat döndü
+                                try:
+                                    price = float(price_info)
+                                except Exception:
+                                    continue
                             
                             # TP/SL Kontrolü
                             outcome = None
@@ -468,8 +678,33 @@ def main():
                                 )
                                 # Pattern analizini tetikle
                                 components["llm_engine"].learning_system.analyze_patterns(min_samples=1) # Test için düşük eşik
-                except Exception as e:
-                    logger.error(f"⚠️ Bekleyen işlem denetleme hatası: {e}")
+                            else:
+                                # Eğer 2 günden uzun süredir açık kaldıysa LLM'e sorup zorunlu kapatma uygula
+                                try:
+                                    from datetime import datetime as _dt
+                                    age = _dt.now() - _dt.fromisoformat(trade["timestamp"]) if isinstance(trade.get("timestamp"), str) else None
+                                except Exception:
+                                    age = None
+                                close_after_days = getattr(config, 'CLOSE_PENDING_AFTER_DAYS', 2)
+                                if age is not None and age.total_seconds() >= close_after_days * 86400:
+                                    logger.info(f"⏳ Trade ID {trade['id']} açık {age.days} gün; LLM'e kapatma kararı soruluyor...")
+                                    try:
+                                        decision = components["llm_engine"].self_assess({"symbol": trade["symbol"], "entry_price": trade["entry_price"], "current_price": price, "direction": trade["direction"], "context": trade})
+                                        # Expect decision like {'action': 'CLOSE'|'KEEP', 'reason': '...'}
+                                        if isinstance(decision, dict) and decision.get('action') == 'CLOSE':
+                                            # Force close and add cooldown
+                                            components["llm_engine"].learning_system.force_close_trade(trade["id"], close_price=price, reason='LLM_FORCED_CLOSE')
+                                            # Add re-entry cooldown
+                                            try:
+                                                cooldown_hours = getattr(config, 'REENTRY_COOLDOWN_HOURS', 5)
+                                                tol = getattr(config, 'REENTRY_PRICE_TOLERANCE', 0.001)
+                                                components["llm_engine"].learning_system.add_entry_cooldown(trade["symbol"], price, cooldown_hours, tol)
+                                            except Exception as _e:
+                                                logger.error(f"Cooldown eklenemedi: {_e}")
+                                    except Exception as e:
+                                        logger.error(f"LLM self-assess hatası: {e}")
+                    except Exception as e:
+                        logger.error(f"⚠️ Bekleyen işlem denetleme hatası: {e}")
 
             # --- DASHBOARD VERİ HAZIRLAMA (Haberler + Beklenen Olaylar) ---
             try:
@@ -509,26 +744,97 @@ def main():
             except Exception as e:
                 logger.error(f"⚠️ Dashboard haber birleştirme hatası: {str(e)}")
 
-            # Her sembolü işle
-            for symbol in config.SYMBOLS:
+            # Pass-based scanning: tüm sembolleri baştan sona birkaç kez tara,
+            # sonra bekle (kullanıcı isteğine göre 3 pass ve 5 dk bekleme)
+            runs = getattr(config, 'LLM_PASS_RUNS', 3)
+            post_wait = getattr(config, 'LLM_PASS_WAIT_SECONDS', 300)
+
+            for run_idx in range(runs):
+                logger.info(f"🔁 LLM Pass {run_idx+1}/{runs} başlatılıyor...")
+                for symbol in config.SYMBOLS:
+                    try:
+                        process_symbol(symbol, components)
+
+                        import gc
+                        gc.collect()
+
+                        # Küçük aralık, ama aynı sembolün arka arkaya işlenmesini engeller
+                        time.sleep(1)
+                    except Exception as e:
+                        logger.error(f"❌ {symbol} işlenirken hata: {str(e)}")
+            # After all passes, compute a position plan (allocation) based on latest signals
+            try:
+                plan = []
+                # load latest web results (if any)
+                wr_path = os.path.join('data', 'web_results.json')
+                if os.path.exists(wr_path):
+                    try:
+                        with open(wr_path, 'r', encoding='utf-8') as wf:
+                            web = json.load(wf)
+                    except Exception:
+                        web = []
+                else:
+                    web = []
+
+                # Keep only latest per symbol (newest first)
+                seen = set()
+                unique = []
+                for s in web:
+                    key = s.get('symbol') or s.get('display_name')
+                    if key and key not in seen:
+                        seen.add(key)
+                        unique.append(s)
+
+                for s in unique:
+                    data = s.get('data', {})
+                    decision = (data.get('decision') or '').upper()
+                    if 'BUY' in decision or 'SELL' in decision:
+                        entry = data.get('entry_price')
+                        sl = data.get('stop_loss')
+                        tp = data.get('take_profit')
+                        # Determine lot using risk manager, prefer VIRTUAL_BALANCE when in dry-run
+                        try:
+                            lot = components['risk_manager'].calculate_position_size(
+                                symbol=s.get('symbol'),
+                                entry_price=float(entry) if entry else 0,
+                                stop_loss=float(sl) if sl else 0,
+                                risk_percent=getattr(config, 'VIRTUAL_RISK_PERCENT', config.RISK_PERCENT),
+                                balance_override=(getattr(config, 'VIRTUAL_BALANCE', None) if getattr(config, 'DRY_RUN', False) else None)
+                            )
+                        except Exception:
+                            lot = getattr(config, 'MIN_DISPLAY_LOT', 0.01)
+
+                        # approximate notional
+                        notional = None
+                        try:
+                            curr = components['data_fetcher'].get_current_price(s.get('symbol'))
+                            curr_f = float(curr) if curr else None
+                            if curr_f is not None:
+                                notional = round(lot * 100000 * curr_f, 2)
+                        except Exception:
+                            notional = None
+
+                        plan.append({
+                            'symbol': s.get('symbol'),
+                            'decision': decision,
+                            'entry': entry,
+                            'lot': lot,
+                            'notional_usd': notional
+                        })
+
+                # Save plan file for dashboard to read
+                os.makedirs('data', exist_ok=True)
                 try:
-                    process_symbol(symbol, components)
-                    
-                    import gc
-                    gc.collect()  # VRAM/RAM'i boşaltmak için çöp toplayıcıyı çalıştır
-                    
-                    # İşlemler arası gecikme (Kullanıcı talebi)
-                    time.sleep(2)
-                except Exception as e:
-                    logger.error(f"❌ {symbol} işlenirken hata: {str(e)}")
-            
-            # Sonraki taramadan önce bekle
-            loop_duration = time.time() - loop_start
-            wait_time = max(0, config.CHECK_INTERVAL - loop_duration)
-            
-            ui.print_loop_status(wait_time)
-            
-            time.sleep(wait_time)
+                    with open(os.path.join('data', 'position_plan.json'), 'w', encoding='utf-8') as pf:
+                        json.dump(plan, pf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"⚠️ Position plan oluşturulurken hata: {e}")
+
+            # Tüm pass'ler tamamlandı — belirtilen süre kadar bekle
+            logger.info(f"⏳ Tüm pass'ler tamamlandı. {post_wait}s bekleniyor...")
+            time.sleep(post_wait)
     
     except KeyboardInterrupt:
         logger.info("")

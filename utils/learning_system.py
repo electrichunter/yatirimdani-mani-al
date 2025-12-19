@@ -4,6 +4,7 @@ Bot kendi performansını izler ve zamanla daha iyi kararlar verir
 """
 
 import sqlite3
+import config
 from datetime import datetime, timedelta
 import json
 import os
@@ -79,8 +80,22 @@ class TradePerformanceTracker:
             conn.commit()
         
         logger.info("✅ Learning database initialized")
+
+        # Cooldowns table: prevent re-entry near closed price for a period
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS entry_cooldowns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    blocked_from DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    blocked_until DATETIME,
+                    blocked_price REAL,
+                    tolerance REAL
+                )
+            """)
+            conn.commit()
     
-    def log_trade_decision(self, symbol, direction, context, llm_decision, dry_run=True):
+    def log_trade_decision(self, symbol, direction, context, llm_decision, dry_run=True, position_size=None, duplicate_tolerance=None):
         """
         İşlem kararını kaydet
         
@@ -94,20 +109,43 @@ class TradePerformanceTracker:
         Returns:
             Trade ID
         """
+        # Prevent duplicate pending trades for same symbol/direction near same price
+        tol = duplicate_tolerance if duplicate_tolerance is not None else getattr(config, 'REENTRY_PRICE_TOLERANCE', 0.001)
+        entry_price = llm_decision.get("entry_price")
         with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if entry_price is not None:
+                try:
+                    cur = conn.execute("SELECT * FROM trade_history WHERE outcome = 'PENDING' AND symbol = ? AND direction = ? ORDER BY timestamp DESC", (symbol, direction))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        existing_entry = r['entry_price']
+                        if existing_entry is None:
+                            continue
+                        try:
+                            if abs(float(existing_entry) - float(entry_price)) <= float(tol):
+                                # Duplicate found, return existing id
+                                logger.info(f"⚠️ Duplicate pending trade detected for {symbol} {direction} near price {entry_price}. Skipping new log.")
+                                return r['id']
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
             cursor = conn.execute("""
                 INSERT INTO trade_history (
-                    symbol, direction, entry_price, stop_loss, take_profit,
+                    symbol, direction, entry_price, stop_loss, take_profit, position_size,
                     technical_score, news_sentiment, llm_confidence, llm_reasoning,
                     trend_h1, trend_h4, trend_d1, rsi_value, macd_signal,
                     outcome, dry_run
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 symbol,
                 direction,
                 llm_decision.get("entry_price"),
                 llm_decision.get("stop_loss"),
                 llm_decision.get("take_profit"),
+                position_size,
                 context.get("technical_score"),
                 context.get("news_sentiment"),
                 llm_decision.get("confidence"),
@@ -120,7 +158,7 @@ class TradePerformanceTracker:
                 "PENDING",
                 dry_run
             ))
-            
+
             trade_id = cursor.lastrowid
             conn.commit()
         
@@ -159,6 +197,132 @@ class TradePerformanceTracker:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM trade_history WHERE outcome = 'PENDING'")
             return [dict(row) for row in cursor.fetchall()]
+
+    def force_close_trade(self, trade_id, close_price, reason="LLM_FORCED_CLOSE"):
+        """Zorunlu kapatma: pending trade'i kapat ve close_time/price yaz."""
+        # Determine outcome relative to direction
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM trade_history WHERE id = ?", (trade_id,)).fetchone()
+            if not row:
+                return False
+            direction = row['direction']
+            entry = row['entry_price'] or 0
+
+            outcome = 'BREAKEVEN'
+            profit_pips = None
+            if entry and close_price:
+                profit = close_price - entry if direction == 'BUY' else entry - close_price
+                profit_pips = abs(profit) * (100 if 'JPY' in row['symbol'] else 10000)
+                if profit > 0:
+                    outcome = 'WIN'
+                elif profit < 0:
+                    outcome = 'LOSS'
+                else:
+                    outcome = 'BREAKEVEN'
+
+            conn.execute("""
+                UPDATE trade_history
+                SET outcome = ?, profit_pips = ?, profit_amount = ?, close_price = ?, close_time = ?
+                WHERE id = ?
+            """, (outcome, profit_pips, profit if entry else None, close_price, datetime.now(), trade_id))
+            conn.commit()
+
+        logger.info(f"🛑 Trade ID {trade_id} force-closed by system (reason={reason}) -> outcome={outcome}")
+        return True
+
+    def add_entry_cooldown(self, symbol, price, hours, tolerance):
+        """Add a cooldown preventing re-entry near `price` for `hours` hours."""
+        blocked_until = datetime.now() + timedelta(hours=hours)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO entry_cooldowns (symbol, blocked_from, blocked_until, blocked_price, tolerance)
+                VALUES (?, ?, ?, ?, ?)
+            """, (symbol, datetime.now(), blocked_until, price, tolerance))
+            conn.commit()
+        logger.info(f"⏳ Cooldown set for {symbol} at {price} until {blocked_until}")
+
+    def is_entry_allowed(self, symbol, entry_price):
+        """Check if a new entry at `entry_price` is allowed for `symbol`.
+        Returns (allowed: bool, reason: str)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM entry_cooldowns WHERE symbol = ? AND blocked_until > ? ORDER BY blocked_until DESC", (symbol, datetime.now())).fetchall()
+            for r in rows:
+                blocked_price = r['blocked_price']
+                tol = r['tolerance'] or 0
+                if blocked_price is None:
+                    return (True, '')
+                # If tolerance looks like a small number (<0.1), treat as absolute difference,
+                # otherwise treat as relative percentage
+                try:
+                    ep = float(entry_price)
+                    bp = float(blocked_price)
+                    diff = abs(ep - bp)
+                    if diff <= float(tol):
+                        return (False, f"Re-entry cooldown aktif (fiyat yakın: {bp} ±{tol})")
+                except Exception:
+                    continue
+        return (True, '')
+
+    def reconcile_pending_trades_on_resume(self, price_getter):
+        """When monitoring is resumed, check pending trades against current prices.
+        `price_getter` is a function that takes a symbol and returns the current price (float) or None.
+        For each PENDING trade, if TP or SL condition already met, mark it closed.
+        Returns a dict summary of actions taken.
+        """
+        summary = {
+            'checked': 0,
+            'closed': 0,
+            'skipped': 0,
+            'errors': 0
+        }
+        pending = self.get_pending_trades()
+        for t in pending:
+            summary['checked'] += 1
+            try:
+                symbol = t['symbol']
+                current = price_getter(symbol)
+                if current is None:
+                    summary['skipped'] += 1
+                    continue
+
+                entry = t.get('entry_price') or 0
+                sl = t.get('stop_loss')
+                tp = t.get('take_profit')
+                direction = t.get('direction')
+
+                outcome = None
+                if direction == 'BUY':
+                    if tp is not None and current >= tp:
+                        outcome = 'WIN'
+                    elif sl is not None and current <= sl:
+                        outcome = 'LOSS'
+                else:  # SELL
+                    if tp is not None and current <= tp:
+                        outcome = 'WIN'
+                    elif sl is not None and current >= sl:
+                        outcome = 'LOSS'
+
+                if outcome:
+                    profit_pips = None
+                    try:
+                        profit = current - entry if direction == 'BUY' else entry - current
+                        profit_pips = abs(profit) * (100 if 'JPY' in symbol else 10000)
+                    except Exception:
+                        profit_pips = None
+
+                    self.update_trade_outcome(trade_id=t['id'], outcome=outcome, profit_pips=profit_pips, close_price=current)
+                    summary['closed'] += 1
+                else:
+                    summary['skipped'] += 1
+            except Exception:
+                summary['errors'] += 1
+                continue
+
+        logger.info(f"🔁 Reconcile on resume: checked={summary['checked']} closed={summary['closed']} skipped={summary['skipped']}")
+        return summary
     
     def analyze_patterns(self, min_samples=10):
         """

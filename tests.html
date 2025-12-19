@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sniper Tests - Arşiv Testleri</title>
+  <style>
+    body{background:#0d1117;color:#e6edf3;font-family:Arial,Helvetica,sans-serif;padding:20px}
+    .container{max-width:1100px;margin:0 auto}
+    h1{color:#58a6ff}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border-bottom:1px solid #222}
+    th{color:#8b949e;text-align:left}
+    tr:hover td{background:#0f1720}
+    .badge{display:inline-block;padding:4px 8px;border-radius:6px;font-size:12px}
+    .btn{display:inline-block;padding:8px 12px;background:#2f81f7;color:#fff;border-radius:8px;text-decoration:none;border:0;cursor:pointer}
+    .controls{display:flex;gap:8px;align-items:center}
+    .muted{color:#8b949e}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Arşiv Testleri</h1>
+    <div class="controls">
+      <button id="btn-refresh" class="btn">Yenile</button>
+      <button id="btn-download-all" class="btn" style="background:#22c55e">Tümünü İndir (JSON)</button>
+      <button id="btn-export-tested" class="btn" style="background:#6b7280">Test Edilmişleri Dışa Aktar</button>
+      <div style="margin-left:auto;color:#8b949e">Toplam: <span id="total">0</span> • Test Edildi: <span id="tested">0</span></div>
+    </div>
+
+    <div id="list-area">
+      <p class="muted">Arşiv yükleniyor...</p>
+    </div>
+  </div>
+
+<script>
+async function fetchArchive(){
+  try{
+    const r = await fetch('/api/archive');
+    if(!r.ok){ document.getElementById('list-area').innerHTML = '<p class="muted">Arşiv bulunamadı.</p>'; return; }
+    const arr = await r.json();
+    renderList(arr || []);
+  }catch(e){ console.error(e); document.getElementById('list-area').innerHTML = '<p class="muted">Hata: '+e+'</p>'; }
+}
+
+function renderList(arr){
+  const testedMap = JSON.parse(localStorage.getItem('archive_tested')||'{}');
+  document.getElementById('total').innerText = arr.length;
+  const testedCount = arr.filter(it=>testedMap[it.timestamp+'|'+(it.symbol||it.display_name)]).length;
+  document.getElementById('tested').innerText = testedCount;
+
+  if(arr.length===0){ document.getElementById('list-area').innerHTML = '<p class="muted">Arşiv boş.</p>'; return; }
+
+  const rows = arr.map((it, idx)=>{
+    const key = it.timestamp+'|'+(it.symbol||it.display_name);
+    const tested = !!testedMap[key];
+    const data = it.data || {};
+    const conf = (data.presented_confidence!==undefined)?data.presented_confidence:(data.confidence||0);
+    const userMsg = (data.user_message||data.reasoning||'');
+    const virtual = data.virtual || {};
+    return `
+      <tr data-idx="${idx}">
+        <td style="width:220px"><b>${it.display_name||it.symbol}</b><div class="small muted">${it.timestamp}</div></td>
+        <td style="width:80px"><span class="badge" style="background:#111;padding:6px">%${conf}</span></td>
+        <td style="width:120px">${data.decision||''}</td>
+        <td>${userMsg.replace(/"/g,'')}</td>
+        <td style="width:240px">
+          <div class="small muted">Risk: ${virtual.risk_amount||'-'} • Beklenen Kâr: ${virtual.expected_profit_if_tp||'-'}</div>
+          <div style="margin-top:6px">
+            <button class="btn btn-download" data-idx="${idx}">İndir</button>
+            <button class="btn btn-mark" data-key="${key}" style="background:${tested? '#6b7280':'#2f81f7'}">${tested? 'Test Edildi':'Test Et'}</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  const table = `
+    <table>
+      <thead><tr><th>Sembol / Zaman</th><th>Güven</th><th>Karar</th><th>Açıklama</th><th>İşlemler</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  document.getElementById('list-area').innerHTML = table;
+
+  document.querySelectorAll('.btn-download').forEach(b=>b.addEventListener('click', (e)=>{
+    const idx = parseInt(e.target.dataset.idx,10);
+    const item = arr[idx];
+    const blob = new Blob([JSON.stringify(item, null, 2)],{type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `archive_${idx}.json`; a.click(); URL.revokeObjectURL(url);
+  }));
+
+  document.querySelectorAll('.btn-mark').forEach(b=>b.addEventListener('click',(e)=>{
+    const key = e.target.dataset.key;
+    const map = JSON.parse(localStorage.getItem('archive_tested')||'{}');
+    if(map[key]) delete map[key]; else map[key] = (new Date()).toISOString();
+    localStorage.setItem('archive_tested', JSON.stringify(map));
+    fetchArchive();
+  }));
+}
+
+document.getElementById('btn-refresh').addEventListener('click', fetchArchive);
+document.getElementById('btn-download-all').addEventListener('click', async ()=>{
+  const r = await fetch('/api/archive'); if(!r.ok){ alert('Arşiv yok'); return;} const a = await r.json(); const blob = new Blob([JSON.stringify(a,null,2)],{type:'application/json'}); const url = URL.createObjectURL(blob); const aa = document.createElement('a'); aa.href=url; aa.download='analysis_archive.json'; aa.click(); URL.revokeObjectURL(url);
+});
+
+document.getElementById('btn-export-tested').addEventListener('click', async ()=>{
+  const r = await fetch('/api/archive'); if(!r.ok){ alert('Arşiv yok'); return;} const a = await r.json(); const map = JSON.parse(localStorage.getItem('archive_tested')||'{}');
+  const filtered = a.filter(it=> map[it.timestamp+'|'+(it.symbol||it.display_name)] );
+  const blob = new Blob([JSON.stringify(filtered,null,2)],{type:'application/json'}); const url = URL.createObjectURL(blob); const aa = document.createElement('a'); aa.href=url; aa.download='tested_archive.json'; aa.click(); URL.revokeObjectURL(url);
+});
+
+// initial
+fetchArchive();
+</script>
+</body>
+</html>

@@ -1,11 +1,1 @@
-{
-  "karar": "AL",
-  "guven": 50,
-  "giris_fiyati": 67.2300033569336,
-  "zarar_kes": 1.02,
-  "kar_al": 67.2400033569336,
-  "risk_skoru": 2,
-  "risk_odul_orani": 0.5,
-  "beklenen_sure": "1 saat",
-  "neden": "Teknik analizlere ve desenlere güvenmek suretiyle, RSI 85 seviyesi ve MACD sinyali pozitif, trend H1, H4 ve D1 semua bullish olduğu için, alımla fırsatını yakalamak mümkün. Yaklaşan haberler de bu kararı etkileyorsa da, son dakika gelişmeleri nedeniyle risk skoru 2 olarak belirlenmiştir. Risk/ödül oranı >= 1.5 olan bir pozisyon açılması gerektirir."
-}
+ 

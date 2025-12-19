@@ -19,7 +19,7 @@ class RiskManager:
         """
         self.broker = broker
     
-    def calculate_position_size(self, symbol, entry_price, stop_loss, risk_percent=None):
+    def calculate_position_size(self, symbol, entry_price, stop_loss, risk_percent=None, balance_override=None):
         """
         Risk yüzdesine göre pozisyon büyüklüğünü hesaplar
         
@@ -38,8 +38,14 @@ class RiskManager:
         if risk_percent is None:
             risk_percent = config.RISK_PERCENT
         
-        # Hesap bakiyesini al
-        balance = self.broker.get_balance()
+        # Hesap bakiyesini al (öncelik: balance_override > config.VIRTUAL_BALANCE (dry) > broker.get_balance())
+        if balance_override is not None:
+            balance = float(balance_override)
+        else:
+            if getattr(config, 'VIRTUAL_BALANCE', None) is not None and getattr(config, 'DRY_RUN', False):
+                balance = float(getattr(config, 'VIRTUAL_BALANCE'))
+            else:
+                balance = self.broker.get_balance()
         if balance == 0:
             logger.error("Hesap bakiyesi 0, pozisyon büyüklüğü hesaplanamıyor")
             return 0.01  # Minimum lot büyüklüğü
