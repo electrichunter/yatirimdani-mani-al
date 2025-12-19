@@ -1,0 +1,31 @@
+# Core Trading Dependencies
+MetaTrader5==5.0.45
+yfinance==0.2.33  # Yahoo Finance data source
+pandas==2.1.4
+numpy==1.24.3
+
+# LLM & RAG
+ollama==0.1.6
+google-genai  # New Gemini SDK (replaces google-generativeai)
+chromadb==0.4.22
+sentence-transformers==2.2.2
+
+# Database
+sqlite3  # Built-in with Python
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+
+# News API support
+beautifulsoup4==4.12.3  # For web scraping if needed
+
+# Technical Analysis
+ta-lib==0.4.28  # Optional: requires binary installation
+pandas-ta==0.3.14b0  # Alternative to ta-lib, pure Python
+
+# Logging & Monitoring
+colorlog==6.8.0
+
+# PDF Processing
+pypdf==4.0.1

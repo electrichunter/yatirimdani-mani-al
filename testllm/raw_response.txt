@@ -1,0 +1,11 @@
+{
+  "karar": "AL",
+  "guven": 85,
+  "giris_fiyati": 66.4800033569336,
+  "zarar_kes": 65.7000015258789,
+  "kar_al": 77.2000023841858,
+  "risk_skoru": 75,
+  "risk_odul_orani": 2.0,
+  "beklenen_sure": "Örn: 2 saat",
+  "neden": "Teknik Analiz (1. Aşama Puanı: 40/100): RSI: 77.27257594673326, MACD Sinyali: MACD histogram pozitif, Trend H1: BULLISH, Trend H4: BULLISH, Trend D1: BULLISH, Hacim: Hacim önemli değil. Haber Duygusu (2. Aşama): Ortalama Duygu: 0 (-100 düşüş eğilimli / +100 yükseliş eğilimli), Son Haber Sayısı: 0. Yaklaşan ekonomik olaylar (3 olay): 2025-12-20 18:18: ABD İşsizlik Başvuruları [MEDIUM Etki] Ülke: USD | Önceki: 210K | Tahmin: 215K, 2025-12-22 18:18: ABD Tarım Dışı İstihdam (NFP) [HIGH Etki] Ülke: USD | Önceki: 200K | Tahmin: 180K, 2025-12-24 18:18: Fed Faiz Kararı (FOMC) [HIGH Etki] Ülke: USD | Önceki: 5.50% | Tahmin: 5.50%. Strateji Alıntısı 1: RAG is disabled. Rely on technicals and patterns."
+}
