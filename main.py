@@ -10,6 +10,7 @@ import webbrowser
 import threading
 import subprocess
 from datetime import datetime
+import json
 import config
 from core.broker_yfinance import YFinanceBroker
 from core.data_fetcher import DataFetcher
@@ -32,6 +33,7 @@ ui = UIFormatter()
 ZERO_CONF_COUNTERS = {}
 # Global counter for analysis runs per symbol (to tag saved analyses)
 ANALYSIS_COUNTERS = {}
+LAST_SAVED_DECISIONS = {}
 
 def select_mode():
     """Etkileşimli mod seçimi"""
@@ -72,6 +74,29 @@ def select_mode():
         if llm_choice in ['G', 'O']:
             break
         print("❌ Lütfen G veya O girin!")
+
+    # 4. Zaman Dilimi Seçimi
+    print("\n4. Zaman Dilimi Seçin:")
+    print("  [1] 1 Saatlik (H1)")
+    print("  [4] 4 Saatlik (H4)")
+    print("  [D] Günlük (D1)")
+    print("  [W] Haftalık (W1)")
+    
+    while True:
+        tf_choice = input("\nZaman dilimi (1/4/D/W): ").strip().upper()
+        if tf_choice == '1':
+            config.SELECTED_TIMEFRAME = "H1"
+            break
+        elif tf_choice == '4':
+            config.SELECTED_TIMEFRAME = "H4"
+            break
+        elif tf_choice == 'D':
+            config.SELECTED_TIMEFRAME = "D1"
+            break
+        elif tf_choice == 'W':
+            config.SELECTED_TIMEFRAME = "W1"
+            break
+        print("❌ Lütfen geçerli bir seçim yapın!")
     
     # Yapılandırmayı güncelle
     config.DEMO_MODE = (veri == 'D')
@@ -87,6 +112,7 @@ def select_mode():
     print(f"✅ Veri: {'📊 Canlı (YFinance)' if veri == 'C' else '🎲 Simüle'}")
     print(f"✅ Mod: {'📋 Test/Sanal' if islem == 'T' else 'ℹ️ Sinyal Modu'}")
     print(f"✅ AI Backend: {'☁️ Gemini' if config.USE_GEMINI_API else f'🏠 Ollama ({config.LLM_MODEL})'}")
+    print(f"✅ Zaman Dilimi: {config.SELECTED_TIMEFRAME}")
     print("=" * 60)
     
     if islem == 'S':
@@ -149,6 +175,292 @@ def initialize_system():
         "llm_engine": llm_engine
     }
 
+
+# --- Simulated trades helpers (for DRY_RUN / suggestion-only mode) ---
+SIM_TRADES_FILE = os.path.join('data', 'simulated_trades.json')
+
+def load_simulated_trades():
+    try:
+        if os.path.exists(SIM_TRADES_FILE):
+            with open(SIM_TRADES_FILE, 'r', encoding='utf-8') as sf:
+                return json.load(sf)
+    except Exception:
+        pass
+    return []
+
+
+def save_result_if_changed(symbol, data, archive=True):
+    """Save result to web only if the decision changed since last saved for this symbol."""
+    try:
+        decision = data.get('decision') if isinstance(data, dict) else None
+        if decision is None:
+            ui.save_result_for_web(symbol, data, archive=archive)
+            return
+        last = LAST_SAVED_DECISIONS.get(symbol)
+        if last == decision:
+            return
+        LAST_SAVED_DECISIONS[symbol] = decision
+        ui.save_result_for_web(symbol, data, archive=archive)
+    except Exception:
+        try:
+            ui.save_result_for_web(symbol, data, archive=archive)
+        except Exception:
+            pass
+
+def save_simulated_trades(trades):
+    try:
+        os.makedirs(os.path.dirname(SIM_TRADES_FILE), exist_ok=True)
+        with open(SIM_TRADES_FILE, 'w', encoding='utf-8') as sf:
+            json.dump(trades, sf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def add_simulated_trade(trade):
+    trades = load_simulated_trades()
+    trades.append(trade)
+    save_simulated_trades(trades)
+
+def update_simulated_trades(components):
+    """Refresh current prices for simulated trades and compute unrealized P/L."""
+    trades = load_simulated_trades()
+    updated = False
+    for t in trades:
+        try:
+            p = components['data_fetcher'].get_current_price(t.get('symbol'))
+            price = None
+            if isinstance(p, dict):
+                price = p.get('mid') or p.get('price')
+            else:
+                try:
+                    price = float(p)
+                except Exception:
+                    price = None
+
+            if price is None:
+                continue
+
+            t['current_price'] = price
+
+            # Ensure notional exists (fallback)
+            if t.get('notional_usd') is None:
+                try:
+                    t['notional_usd'] = round((t.get('lot', 0) or 0) * 100000 * (t.get('entry_price') or price), 2)
+                except Exception:
+                    t['notional_usd'] = None
+
+            # Compute unrealized USD and percent (BUY positive, SELL inverted)
+            if t.get('entry_price'):
+                try:
+                    change = (price - float(t['entry_price'])) / float(t['entry_price'])
+                    if t.get('direction', '').upper() == 'SELL':
+                        change = -change
+                    notional = float(t.get('notional_usd') or 0)
+                    t['unrealized_usd'] = round(change * notional, 2)
+                    t['unrealized_pct'] = round(change * 100, 4)
+                except Exception:
+                    t['unrealized_usd'] = 0.0
+                    t['unrealized_pct'] = 0.0
+
+            updated = True
+        except Exception:
+            continue
+
+    if updated:
+        save_simulated_trades(trades)
+    return trades
+
+def simulated_trades_summary():
+    trades = load_simulated_trades()
+    total_unreal = sum((t.get('unrealized_usd') or 0) for t in trades if t.get('status') == 'OPEN')
+    total_notional = sum((t.get('notional_usd') or 0) for t in trades if t.get('status') == 'OPEN')
+    total_realized = sum((t.get('realized_usd') or 0) for t in trades if t.get('status') == 'CLOSED')
+    pct = (total_unreal / total_notional * 100) if total_notional else 0.0
+    return {
+        'count_open': sum(1 for t in trades if t.get('status') == 'OPEN'),
+        'count_closed': sum(1 for t in trades if t.get('status') == 'CLOSED'),
+        'total_unrealized_usd': round(total_unreal,2),
+        'total_notional_usd': round(total_notional,2),
+        'total_realized_usd': round(total_realized,2),
+        'total_unrealized_pct': round(pct,4)
+    }
+
+
+def pip_multiplier(symbol: str):
+    try:
+        if "=X" in symbol:
+            return 10000 if "JPY" not in symbol else 100
+        if "GC=F" in symbol or "XAU" in symbol:
+            return 10
+        if "SI=F" in symbol or "XAG" in symbol:
+            return 100
+    except Exception:
+        pass
+    return 1
+
+
+def compute_notional(symbol, lot, price):
+    try:
+        if price is None:
+            return None
+        # Forex lot convention: 1 lot = 100,000 units
+        if "=X" in symbol or any(x in symbol for x in ["EUR", "USD", "JPY", "GBP", "AUD", "NZD", "CAD"]):
+            return round(lot * 100000 * float(price), 2)
+        # Otherwise treat lot as number of shares/contracts
+        return round(lot * float(price), 2)
+    except Exception:
+        return None
+
+
+def open_simulated_trade_from_spec(spec, components):
+    """Spec is a dict with keys: symbol, direction, lot, optional entry, sl, tp, leverage"""
+    try:
+        symbol = spec.get('symbol')
+        direction = (spec.get('direction') or 'BUY').upper()
+        lot = float(spec.get('lot') or spec.get('volume') or getattr(config, 'MIN_DISPLAY_LOT', 0.01))
+        entry = spec.get('entry')
+        # If entry price not provided, fetch current
+        if entry is None and components is not None:
+            try:
+                p = components['data_fetcher'].get_current_price(symbol)
+                if isinstance(p, dict):
+                    entry = p.get('mid') or p.get('price')
+                else:
+                    entry = float(p)
+            except Exception:
+                entry = None
+
+        sl = spec.get('stop_loss')
+        tp = spec.get('take_profit')
+        leverage = float(spec.get('leverage', getattr(config, 'LEVERAGE', 30)))
+
+        notional = compute_notional(symbol, lot, entry)
+        margin = round((notional or 0) / leverage, 2) if leverage else None
+
+        trade = {
+            'id': spec.get('id') or f"sim-{int(time.time()*1000)}",
+            'symbol': symbol,
+            'direction': direction,
+            'lot': lot,
+            'entry_price': entry,
+            'stop_loss': sl,
+            'take_profit': tp,
+            'leverage': leverage,
+            'margin_required': margin,
+            'notional_usd': notional,
+            'opened_at': datetime.now().isoformat(),
+            'status': 'OPEN',
+            'current_price': entry,
+            'unrealized_usd': 0.0,
+            'unrealized_pct': 0.0,
+            'realized_usd': 0.0
+        }
+        add_simulated_trade(trade)
+        return trade
+    except Exception as e:
+        logger.error(f"open_simulated_trade failed: {e}")
+        return None
+
+
+def close_simulated_trade_by_spec(spec, components):
+    # spec may have 'id' or 'symbol' and optional 'close_price'
+    try:
+        trades = load_simulated_trades()
+        changed = False
+        for t in trades:
+            if t.get('status') != 'OPEN':
+                continue
+            match = False
+            if spec.get('id') and spec.get('id') == t.get('id'):
+                match = True
+            elif spec.get('symbol') and spec.get('symbol') == t.get('symbol'):
+                match = True
+            if not match:
+                continue
+
+            close_price = spec.get('close_price')
+            if close_price is None and components is not None:
+                try:
+                    p = components['data_fetcher'].get_current_price(t.get('symbol'))
+                    close_price = p.get('mid') if isinstance(p, dict) else float(p)
+                except Exception:
+                    close_price = None
+
+            if close_price is None:
+                continue
+
+            # compute realized
+            try:
+                entry = float(t.get('entry_price') or 0)
+                notional = float(t.get('notional_usd') or 0)
+                change = (float(close_price) - entry) / entry if entry else 0
+                if t.get('direction', '').upper() == 'SELL':
+                    change = -change
+                realized = round(change * notional, 2)
+            except Exception:
+                realized = 0.0
+
+            t['status'] = 'CLOSED'
+            t['closed_at'] = datetime.now().isoformat()
+            t['close_price'] = close_price
+            t['realized_usd'] = realized
+            t['unrealized_usd'] = 0.0
+            t['unrealized_pct'] = 0.0
+            changed = True
+
+        if changed:
+            save_simulated_trades(trades)
+        return changed
+    except Exception as e:
+        logger.error(f"close_simulated_trade failed: {e}")
+        return False
+
+
+def watch_manual_trade_files(components):
+    """If files `data/open_trade.json` or `data/close_trade.json` exist, process and remove them."""
+    try:
+        open_path = os.path.join('data', 'open_trade.json')
+        if os.path.exists(open_path):
+            try:
+                with open(open_path, 'r', encoding='utf-8') as of:
+                    spec = json.load(of)
+                # support list or single
+                if isinstance(spec, list):
+                    for s in spec:
+                        t = open_simulated_trade_from_spec(s, components)
+                        if t:
+                            logger.info(f"🔁 Manuel sim trade açıldı: {t.get('id')} {t.get('symbol')} {t.get('direction')} {t.get('lot')}")
+                elif isinstance(spec, dict):
+                    t = open_simulated_trade_from_spec(spec, components)
+                    if t:
+                        logger.info(f"🔁 Manuel sim trade açıldı: {t.get('id')} {t.get('symbol')} {t.get('direction')} {t.get('lot')}")
+            except Exception as e:
+                logger.error(f"open_trade.json işlenirken hata: {e}")
+            try:
+                os.remove(open_path)
+            except Exception:
+                pass
+
+        close_path = os.path.join('data', 'close_trade.json')
+        if os.path.exists(close_path):
+            try:
+                with open(close_path, 'r', encoding='utf-8') as cf:
+                    spec = json.load(cf)
+                if isinstance(spec, list):
+                    for s in spec:
+                        if close_simulated_trade_by_spec(s, components):
+                            logger.info(f"🔁 Manuel sim trade kapatıldı (list) {s}")
+                elif isinstance(spec, dict):
+                    if close_simulated_trade_by_spec(spec, components):
+                        logger.info(f"🔁 Manuel sim trade kapatıldı {spec}")
+            except Exception as e:
+                logger.error(f"close_trade.json işlenirken hata: {e}")
+            try:
+                os.remove(close_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 def process_symbol(symbol, components):
     """
     Tek bir sembolü üç kademeli filtreden geçirir
@@ -163,6 +475,13 @@ def process_symbol(symbol, components):
     risk_manager = components["risk_manager"]
     broker = components["broker"]
     
+    # Açık pozisyon kontrolü - AYNI SEMBOLDE İŞLEM VAR MI?
+    open_positions = broker.get_open_positions()
+    for pos in open_positions:
+        if pos.get('symbol') == symbol:
+            logger.info(f"ℹ️ {symbol} - Zaten açık bir pozisyon var, analiz atlanıyor.")
+            return False
+
     # LLM için gelecek olayları hazırla
     upcoming_events = economic_calendar.get_upcoming_events(symbol=symbol)
 
@@ -174,7 +493,7 @@ def process_symbol(symbol, components):
     
     market_data = data_fetcher.get_multi_timeframe_data(
         symbol=symbol,
-        timeframes=list(config.TIMEFRAMES.keys())
+        timeframes=[config.SELECTED_TIMEFRAME]
     )
     
     if not market_data or market_data.get("current_price") is None:
@@ -316,20 +635,9 @@ def process_symbol(symbol, components):
                 # Yeni karar al
                 last_result = llm_engine.make_decision(context)
                 logger.info(f"🔁 {symbol} - Yeniden deneme {retry_count}: Güven %{last_result.get('confidence',0)}")
-                # Save this retry analysis to web results
+                # Save this retry analysis to web results (sadece log'a yazalım, web'i kirletmeyelim)
                 try:
-                    ANALYSIS_COUNTERS[symbol] = ANALYSIS_COUNTERS.get(symbol, 0) + 1
-                    analysis_meta_r = {
-                        "analysis_index": ANALYSIS_COUNTERS[symbol],
-                        "analysis_type": "retry",
-                        "analysis_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "intermediate": True,
-                        "retry_number": retry_count
-                    }
-                    temp_save_r = dict(last_result)
-                    temp_save_r.setdefault('entry_price', float(market_data.get('current_price', 0) or 0))
-                    temp_save_r.update(analysis_meta_r)
-                    ui.save_result_for_web(symbol, temp_save_r, archive=True)
+                    logger.debug(f"🔁 {symbol} - Yeniden deneme {retry_count} kaydedildi (internal)")
                 except Exception:
                     pass
 
@@ -361,29 +669,66 @@ def process_symbol(symbol, components):
     elif stage3_result.get('force_publish', False):
         logger.info(f"ℹ️ {symbol} - Force publish izni verildi; düşük güven yinede işleme alınacak.")
     
-    # UI için sonucu hazırla
-    signal_info = {
-        "decision": stage3_result["decision"],
-        "confidence": stage3_result["confidence"],
-        "reasoning": stage3_result["reasoning"],
-        "entry_price": float(market_data["current_price"]),
-        "stop_loss": stage3_result["stop_loss"],
-        "take_profit": stage3_result["take_profit"],
-        "timeframe": stage3_result.get("timeframe", "H1"),
-        "expected_duration": stage3_result.get("expected_duration", "Bilinmiyor"),
-        "rr_ratio": 0 # Doğrulamadan sonra güncellenecek
-    }
-    
+    # Karar BUY veya SELL değilse (BEKLEMEDE KAL vb.) işlemi burada durdur
+    if stage3_result["decision"] not in ["BUY", "SELL"]:
+        logger.info(f"⏸️ {symbol} - Karar: {stage3_result['decision']} (İşlem açılmıyor)")
+        # Sinyal bilgisini yine de dashboard'a gönderelim ki kullanıcı görsün ama "Açık İşlemler"e girmesin
+        signal_info = {
+            "decision": stage3_result["decision"],
+            "confidence": stage3_result["confidence"],
+            "reasoning": stage3_result["reasoning"],
+            "entry_price": float(market_data["current_price"]),
+            "stop_loss": None,
+            "take_profit": None,
+            "timeframe": stage3_result.get("timeframe", "H1"),
+            "expected_duration": stage3_result.get("expected_duration", "Bilinmiyor"),
+            "rr_ratio": 0
+        }
+        ui.save_result_for_web(symbol, signal_info)
+        return False
+
     # ========================================
     # RİSK YÖNETİMİ & DOĞRULAMA
     # ========================================
     
-    # Pozisyon limitlerini kontrol et
-    position_check = risk_manager.check_position_limits()
-    if not position_check["allowed"]:
-        logger.warning(f"⚠️ {symbol} - {position_check['reason']}")
-        return False
+    # Boştaki bakiyeyi hesapla (User Request: 10% of available)
+    def get_notional(sym, pos_size, price):
+        # Forex için basitleştirilmiş notional (USD cinsinden)
+        contract_size = 100000
+        if sym.startswith("USD"): # USDJPY, USDCAD vb. (Base is USD)
+            return pos_size * contract_size
+        else: # EURUSD, GBPUSD, XAUUSD vb. (Base is not USD)
+            return pos_size * contract_size * price
+
+    def get_available_balance():
+        total = float(getattr(config, 'VIRTUAL_BALANCE', 100.0))
+        if not config.DRY_RUN:
+            try:
+                total = broker.get_balance()
+            except Exception:
+                pass
+        
+        used = 0.0
+        try:
+            pending = components["llm_engine"].learning_system.get_pending_trades()
+            for t in pending:
+                # Margin calculation (1:100 leverage assumed)
+                t_notional = get_notional(t.get('symbol', ''), float(t.get('position_size', 0.01)), float(t.get('entry_price', 1.0)))
+                used += t_notional / 100.0
+        except Exception:
+            pass
+        return max(0.0, total - used)
+
+    free_balance = get_available_balance()
+    current_notional = get_notional(symbol, 0.01, float(market_data["current_price"])) # Min lot notional
+    required_margin = current_notional / 100.0 # 1:100 kaldıraç varsayımı
     
+    logger.info(f"💰 Boştaki Bakiye: ${free_balance:.2f} (Toplam: ${getattr(config, 'VIRTUAL_BALANCE', 100.0)})")
+    
+    if free_balance < required_margin:
+        logger.warning(f"❌ {symbol} - Yetersiz Bakiye! Gerekli Margin: ${required_margin:.2f}, Mevcut: ${free_balance:.2f}")
+        return False
+
     # Risk/ödül oranını doğrula
     llm_entry = float(stage3_result.get("entry_price", 0))
     entry_to_use = llm_entry if llm_entry > 0 else float(market_data["current_price"])
@@ -396,25 +741,40 @@ def process_symbol(symbol, components):
         decision=stage3_result["decision"]
     )
     
+    # Fiyatları doğrulanmış değerlerle güncelle (Eksikse AI yerine biz veriyoruz)
+    entry = entry_to_use
+    sl = float(trade_validation["sl"])
+    tp = float(trade_validation["tp"])
+
+    # stage3_result'ı güncelle ki loglara doğru gitsin
+    stage3_result["entry_price"] = entry
+    stage3_result["stop_loss"] = sl
+    stage3_result["take_profit"] = tp
+    
     if not trade_validation["valid"]:
         logger.warning(f"⚠️ {symbol} - {trade_validation['reason']} -> ⏸️ BEKLEMEDE KAL (Risk/Ödül Uygun Değil)")
         # Sinyali dashboard'a "BEKLE" olarak gönder
-        signal_info["decision"] = "BEKLE (Düşük R:R)"
-        signal_info["reasoning"] = f"Teknik olarak uygun ancak Risk/Ödül oranı ({trade_validation['rr_ratio']}) düşük. " + signal_info.get("reasoning", "")
+        signal_info = {
+            "decision": "BEKLE (Düşük R:R)",
+            "confidence": stage3_result["confidence"],
+            "reasoning": f"Teknik olarak uygun ancak Risk/Ödül oranı ({trade_validation['rr_ratio']}) düşük. " + stage3_result.get("reasoning", ""),
+            "entry_price": entry,
+            "stop_loss": sl,
+            "take_profit": tp,
+            "timeframe": stage3_result.get("timeframe", "H1"),
+            "expected_duration": stage3_result.get("expected_duration", "Bilinmiyor"),
+            "rr_ratio": trade_validation['rr_ratio']
+        }
         ui.save_result_for_web(symbol, signal_info)
         return False
     
-    # Fiyatları risk_manager'dan gelen (veya düzeltilen) değerlerle güncelle
-    sl = float(trade_validation["sl"])
-    tp = float(trade_validation["tp"])
-    entry = entry_to_use
-    
-    # Pozisyon büyüklüğünü hesapla
+    # Pozisyon büyüklüğünü hesapla (Boştaki bakiye üzerinden %10 risk)
     position_size = risk_manager.calculate_position_size(
         symbol=symbol,
         entry_price=entry,
         stop_loss=sl,
-        risk_percent=config.RISK_PERCENT
+        risk_percent=config.RISK_PERCENT,
+        balance_override=free_balance
     )
     
     # ========================================
@@ -441,10 +801,17 @@ def process_symbol(symbol, components):
         tp_distance = 0
     
     # Final UI Çıktısı & Kaydet
-    signal_info["rr_ratio"] = trade_validation['rr_ratio']
-    signal_info["entry_price"] = entry
-    signal_info["stop_loss"] = sl
-    signal_info["take_profit"] = tp
+    signal_info = {
+        "decision": stage3_result["decision"],
+        "confidence": stage3_result["confidence"],
+        "reasoning": stage3_result["reasoning"],
+        "entry_price": entry,
+        "stop_loss": sl,
+        "take_profit": tp,
+        "timeframe": stage3_result.get("timeframe", "H1"),
+        "expected_duration": stage3_result.get("expected_duration", "Bilinmiyor"),
+        "rr_ratio": trade_validation['rr_ratio']
+    }
     
     ui.print_trade_signal(symbol, signal_info)
 
@@ -471,8 +838,9 @@ def process_symbol(symbol, components):
         except Exception as e:
             logger.error(f"⚠️ Öğrenme sistemi kayıt hatası: {e}")
 
-    # Test modu kontrolü
+    # Test modu kontrolü — DRY_RUN: işlemleri gerçek olarak açma; sadece öneri
     if config.DRY_RUN:
+        # In DRY_RUN we collect signals and create a position plan later.
         return True
     
     # Gerçek işlemi gerçekleştir
@@ -586,6 +954,19 @@ def main():
             
             logger.info("")
             logger.info(f"⏰ Tarama başlatıldı: {datetime.now().strftime('%H:%M:%S')}")
+
+            # Update simulated trades as early as possible each loop
+            try:
+                if components is not None:
+                    updated_trades = update_simulated_trades(components)
+                    # push a short summary to web/dashboard
+                    try:
+                        summary = simulated_trades_summary()
+                        ui.save_result_for_web('SIMULATED_TRADES_SUMMARY', summary)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             
             # Haberleri API'den güncelle (Sadece 24 saatte bir)
             if time.time() - last_news_update > NEWS_UPDATE_INTERVAL:
@@ -678,6 +1059,15 @@ def main():
                                 )
                                 # Pattern analizini tetikle
                                 components["llm_engine"].learning_system.analyze_patterns(min_samples=1) # Test için düşük eşik
+                                
+                                # SYNC: simulated_trades.json'daki kaydı da kapat
+                                try:
+                                    close_simulated_trade_by_spec({
+                                        'symbol': trade["symbol"],
+                                        'close_price': price
+                                    }, components)
+                                except Exception:
+                                    pass
                             else:
                                 # Eğer 2 günden uzun süredir açık kaldıysa LLM'e sorup zorunlu kapatma uygula
                                 try:
@@ -694,6 +1084,15 @@ def main():
                                         if isinstance(decision, dict) and decision.get('action') == 'CLOSE':
                                             # Force close and add cooldown
                                             components["llm_engine"].learning_system.force_close_trade(trade["id"], close_price=price, reason='LLM_FORCED_CLOSE')
+                                            
+                                            # SYNC: simulated_trades.json'daki kaydı da kapat
+                                            try:
+                                                close_simulated_trade_by_spec({
+                                                    'symbol': trade["symbol"],
+                                                    'close_price': price
+                                                }, components)
+                                            except Exception:
+                                                pass
                                             # Add re-entry cooldown
                                             try:
                                                 cooldown_hours = getattr(config, 'REENTRY_COOLDOWN_HOURS', 5)
@@ -740,7 +1139,6 @@ def main():
                 
                 # Dashboard için kaydet
                 ui.save_news_for_web(combined_news)
-                
             except Exception as e:
                 logger.error(f"⚠️ Dashboard haber birleştirme hatası: {str(e)}")
 
@@ -762,9 +1160,11 @@ def main():
                         time.sleep(1)
                     except Exception as e:
                         logger.error(f"❌ {symbol} işlenirken hata: {str(e)}")
-            # After all passes, compute a position plan (allocation) based on latest signals
+            
+            # After each pass, compute a position plan (allocation) based on latest signals
             try:
                 plan = []
+
                 # load latest web results (if any)
                 wr_path = os.path.join('data', 'web_results.json')
                 if os.path.exists(wr_path):
@@ -792,25 +1192,57 @@ def main():
                         entry = data.get('entry_price')
                         sl = data.get('stop_loss')
                         tp = data.get('take_profit')
-                        # Determine lot using risk manager, prefer VIRTUAL_BALANCE when in dry-run
+
+                        # Compute free balance
+                        total_balance = float(getattr(config, 'VIRTUAL_BALANCE', 100.0))
+                        if not getattr(config, 'DRY_RUN', False) and components.get('broker') is not None:
+                            try:
+                                total_balance = components['broker'].get_balance()
+                            except Exception:
+                                pass
+
+                        used = 0.0
+                        if components.get('llm_engine') is not None:
+                            try:
+                                pend = components['llm_engine'].learning_system.get_pending_trades()
+                                for t in pend:
+                                    try:
+                                        t_sym = t.get('symbol', '')
+                                        lot_ex = float(t.get('position_size') or 0.01)
+                                        p_ex = float(t.get('entry_price', 1.0))
+                                        # Use standard notional calc
+                                        if t_sym.startswith("USD"):
+                                            used += (lot_ex * 100000) / 100.0
+                                        else:
+                                            used += (lot_ex * 100000 * p_ex) / 100.0
+                                    except Exception:
+                                        continue
+                            except Exception:
+                                pass
+
+                        free_balance = max(0.0, total_balance - used)
+
                         try:
                             lot = components['risk_manager'].calculate_position_size(
                                 symbol=s.get('symbol'),
                                 entry_price=float(entry) if entry else 0,
                                 stop_loss=float(sl) if sl else 0,
-                                risk_percent=getattr(config, 'VIRTUAL_RISK_PERCENT', config.RISK_PERCENT),
-                                balance_override=(getattr(config, 'VIRTUAL_BALANCE', None) if getattr(config, 'DRY_RUN', False) else None)
+                                risk_percent=config.RISK_PERCENT,
+                                balance_override=free_balance
                             )
                         except Exception:
-                            lot = getattr(config, 'MIN_DISPLAY_LOT', 0.01)
+                            lot = 0.01
 
-                        # approximate notional
                         notional = None
                         try:
-                            curr = components['data_fetcher'].get_current_price(s.get('symbol'))
-                            curr_f = float(curr) if curr else None
-                            if curr_f is not None:
-                                notional = round(lot * 100000 * curr_f, 2)
+                            sym_p = s.get('symbol', '')
+                            cp = components['data_fetcher'].get_current_price(sym_p)
+                            cp_f = float(cp) if cp else None
+                            if cp_f:
+                                if sym_p.startswith("USD") or "USD" not in sym_p: # Simplified, real logic in compute_notional
+                                    notional = compute_notional(sym_p, lot, cp_f)
+                                else:
+                                    notional = compute_notional(sym_p, lot, cp_f)
                         except Exception:
                             notional = None
 
@@ -819,18 +1251,91 @@ def main():
                             'decision': decision,
                             'entry': entry,
                             'lot': lot,
-                            'notional_usd': notional
+                            'notional_usd': notional,
+                            'free_balance': round(free_balance, 2),
+                            'used_balance': round(used, 2)
                         })
 
-                # Save plan file for dashboard to read
+                # Save plan file
                 os.makedirs('data', exist_ok=True)
+                with open(os.path.join('data', 'position_plan.json'), 'w', encoding='utf-8') as pf:
+                    json.dump(plan, pf, ensure_ascii=False, indent=2)
+                
+                # Execute Plan
                 try:
-                    with open(os.path.join('data', 'position_plan.json'), 'w', encoding='utf-8') as pf:
-                        json.dump(plan, pf, ensure_ascii=False, indent=2)
-                except Exception:
-                    pass
+                    def execute_position_plan(components, plan_data):
+                        # Determine available free balance
+                        try:
+                            if getattr(config, 'DRY_RUN', False):
+                                initial_balance = float(getattr(config, 'VIRTUAL_BALANCE', 100.0))
+                            else:
+                                initial_balance = float(components['broker'].get_balance() or 0)
+                        except Exception:
+                            initial_balance = 100.0
+
+                        # Calculate current free balance by subtracting margin of open trades
+                        trades = load_simulated_trades()
+                        used_margin = sum(t.get('margin_required', 0) for t in trades if t.get('status') == 'OPEN')
+                        free_bal = max(0.0, initial_balance - used_margin)
+
+                        for item in plan_data:
+                            try:
+                                sym = item['symbol']
+                                # check if exists
+                                already_open = False
+                                for t in trades:
+                                    if t['symbol'] == sym and t['status'] == 'OPEN':
+                                        already_open = True; break
+                                if already_open: continue
+
+                                lot = float(item.get('lot', 0.01))
+                                entry = item.get('entry')
+                                if not entry:
+                                    cp = components['data_fetcher'].get_current_price(sym)
+                                    entry = float(cp) if cp else None
+                                
+                                if not entry: continue
+
+                                notional = compute_notional(sym, lot, entry)
+                                leverage = 100.0 # Assumed leverage
+                                margin_req = (notional or 0) / leverage
+
+                                if free_bal >= margin_req:
+                                    spec = {
+                                        'symbol': sym,
+                                        'direction': item.get('decision'),
+                                        'lot': lot,
+                                        'entry': entry,
+                                        'stop_loss': None, # risk manager handles it in real trades, here we can fetch from signal
+                                        'take_profit': None,
+                                        'leverage': leverage
+                                    }
+                                    # Fetch TP/SL from web results for this signal
+                                    for s in web:
+                                        if (s.get('symbol') == sym or s.get('display_name') == sym):
+                                            spec['stop_loss'] = s.get('data', {}).get('stop_loss')
+                                            spec['take_profit'] = s.get('data', {}).get('take_profit')
+                                            break
+                                    
+                                    t = open_simulated_trade_from_spec(spec, components)
+                                    if t:
+                                        free_bal -= margin_req
+                                        logger.info(f"✅ Bot Planı Uyguladı: {sym} işlem açıldı. Lot: {lot}")
+                            except Exception:
+                                continue
+                        
+                        # Save stats summary
+                        try:
+                            summary = simulated_trades_summary()
+                            ui.save_result_for_web('SIMULATED_TRADES_SUMMARY', summary)
+                        except Exception:
+                            pass
+
+                    execute_position_plan(components, plan)
+                except Exception as e:
+                    logger.error(f"Plan yürütme hatası: {e}")
             except Exception as e:
-                logger.error(f"⚠️ Position plan oluşturulurken hata: {e}")
+                logger.error(f"⚠️ Position plan generation error: {e}")
 
             # Tüm pass'ler tamamlandı — belirtilen süre kadar bekle
             logger.info(f"⏳ Tüm pass'ler tamamlandı. {post_wait}s bekleniyor...")

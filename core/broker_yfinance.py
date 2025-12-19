@@ -187,7 +187,21 @@ class YFinanceBroker:
         return 10000.0
 
     def get_open_positions(self):
-        """Simüle edilmiş açık pozisyonlar"""
+        """Açık pozisyonları getir (Sanal veya Gerçek)"""
+        if config.DRY_RUN:
+            import json
+            import os
+            sim_file = os.path.join('data', 'simulated_trades.json')
+            if os.path.exists(sim_file):
+                try:
+                    with open(sim_file, 'r', encoding='utf-8') as f:
+                        trades = json.load(f)
+                    return [t for t in trades if t.get('status') == 'OPEN']
+                except Exception:
+                    pass
+            return []
+        
+        # Gerçek broker (MT5 vb.) açık pozisyonları buraya gelecek
         return []
 
     def close(self):

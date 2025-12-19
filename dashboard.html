@@ -349,7 +349,8 @@
             </div>
             <div style="display: flex; align-items: center; gap: 15px;">
                 <span id="last-update" style="font-size: 12px; color: var(--text-secondary);"></span>
-                <span id="virtual-balance" style="font-size:12px; color:var(--text-secondary); margin-right:8px;"></span>
+                <span id="virtual-balance"
+                    style="font-size:12px; color:var(--text-secondary); margin-right:8px;"></span>
                 <div class="status-badge">
                     <span class="live-dot"></span> Canlı İzleniyor
                 </div>
@@ -361,10 +362,17 @@
                 <span>ℹ️</span> SİSTEM REHBERİ
             </div>
             <div style="margin-top:12px; display:flex; gap:12px; align-items:center;">
-                <button id="btn-refresh-stats" style="padding:8px 12px; border-radius:8px; background:var(--accent-blue); color:#fff; border:none; cursor:pointer;">İstatistikleri Güncelle</button>
-                <button id="btn-schedule" style="padding:8px 12px; border-radius:8px; background:#6a5acd; color:#fff; border:none; cursor:pointer;">LLM ile Zamanlama Yap</button>
-                <button id="btn-pause-monitoring" style="padding:8px 12px; border-radius:8px; background:#ffb86b; color:#000; border:none; cursor:pointer;">Duraklat</button>
-                <button id="btn-delete-archive" style="padding:8px 12px; border-radius:8px; background:#da3633; color:#fff; border:none; cursor:pointer;">Eski İşlemleri Sil</button>
+                <button id="btn-refresh-stats"
+                    style="padding:8px 12px; border-radius:8px; background:var(--accent-blue); color:#fff; border:none; cursor:pointer;">İstatistikleri
+                    Güncelle</button>
+                <button id="btn-schedule"
+                    style="padding:8px 12px; border-radius:8px; background:#6a5acd; color:#fff; border:none; cursor:pointer;">LLM
+                    ile Zamanlama Yap</button>
+                <button id="btn-pause-monitoring"
+                    style="padding:8px 12px; border-radius:8px; background:#ffb86b; color:#000; border:none; cursor:pointer;">Duraklat</button>
+                <button id="btn-delete-archive"
+                    style="padding:8px 12px; border-radius:8px; background:#da3633; color:#fff; border:none; cursor:pointer;">Eski
+                    İşlemleri Sil</button>
                 <div id="archive-meta" style="color:var(--text-secondary); margin-left:12px;"></div>
             </div>
             <div id="button-explain" style="color:var(--text-secondary); margin-top:8px; font-size:13px;"></div>
@@ -411,6 +419,9 @@
                 </div>
                 <div id="position-plan" class="guide-item" style="grid-column: 1/-1; display: none;">
                     <h3>📦 Pozisyon Planı (Önerilen)</h3>
+                    <p style="font-size:12px; margin-top:-5px; margin-bottom:10px; color:var(--text-secondary);">AI'nın
+                        son tarama döngüsündeki önerileridir. Hesabınızın risk limitlerine göre açılabilecek ideal
+                        lotları gösterir.</p>
                     <div id="position-plan-content" style="font-size:13px;color:var(--text-secondary);"></div>
                 </div>
                 <div id="open-positions" class="guide-item" style="grid-column: 1/-1; display: none;">
@@ -421,7 +432,8 @@
         </section>
         <section class="guide-section" style="margin-top:10px;">
             <div class="guide-title"><span>📊</span> İşlem Takip & Test</div>
-            <div id="track-stats" style="padding-top:12px; color:var(--text-secondary);">İstatistikler yükleniyor...</div>
+            <div id="track-stats" style="padding-top:12px; color:var(--text-secondary);">İstatistikler yükleniyor...
+            </div>
         </section>
 
         <div id="signal-grid" class="grid">
@@ -488,8 +500,15 @@
                 if (!resp.ok) return;
                 const s = await resp.json();
                 const el = document.getElementById('track-stats');
-                // Update virtual balance in header if present
-                try { if (s.virtual_balance !== undefined) document.getElementById('virtual-balance').innerText = 'Bakiye: $' + Number(s.virtual_balance).toFixed(2); } catch(e){}
+                // Update virtual / free / used balance in header if present
+                try {
+                    if (s.virtual_balance !== undefined) {
+                        const total = Number(s.virtual_balance).toFixed(2);
+                        const used = (s.used_balance !== undefined) ? Number(s.used_balance).toFixed(2) : '0.00';
+                        const free = (s.free_balance !== undefined) ? Number(s.free_balance).toFixed(2) : total;
+                        document.getElementById('virtual-balance').innerText = `Bakiye: $${total} • Boş: $${free} • Kullanılan: $${used}`;
+                    }
+                } catch (e) { }
 
                 const success = (s.success_rate === undefined || s.success_rate === null) ? 0 : Math.round(Number(s.success_rate));
                 el.innerHTML = `
@@ -548,25 +567,83 @@
                 return;
             }
             container.style.display = 'block';
-            content.innerHTML = list.map(p => {
-                const profitAmt = (p.profit_amount !== null && p.profit_amount !== undefined) ? Number(p.profit_amount).toFixed(2) : '—';
-                const profitPips = (p.profit_pips !== null && p.profit_pips !== undefined) ? Number(p.profit_pips).toFixed(1) : '—';
+
+            // Table headers
+            let header = `
+                <div style="display: grid; grid-template-columns: 1.2fr 0.8fr 2fr 1.2fr 1.2fr; gap: 15px; padding: 10px 15px; border-bottom: 2px solid rgba(255,255,255,0.1); font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 1px;">
+                    <div>Enstrüman</div>
+                    <div>Açılış</div>
+                    <div>Seviyeler (Giriş/TP/SL)</div>
+                    <div>Fiyat</div>
+                    <div style="text-align: right;">Kâr / Zarar</div>
+                </div>
+            `;
+
+            const rows = list.map(p => {
+                const profitAmt = (p.profit_amount !== null && p.profit_amount !== undefined) ? Number(p.profit_amount).toFixed(2) : '0.00';
+                const profitPips = (p.profit_pips !== null && p.profit_pips !== undefined) ? Number(p.profit_pips).toFixed(1) : '0.0';
                 const notional = (p.notional_usd !== null && p.notional_usd !== undefined) ? Number(p.notional_usd).toFixed(2) : '—';
-                const status = (typeof p.profit_amount === 'number' && p.profit_amount > 0) ? 'Kâr' : (typeof p.profit_amount === 'number' && p.profit_amount < 0 ? 'Zarar' : 'Eşit');
-                const badgeColor = status === 'Kâr' ? 'var(--accent-green)' : (status === 'Zarar' ? 'var(--accent-red)' : 'var(--text-secondary)');
+                const isProfit = typeof p.profit_amount === 'number' && p.profit_amount > 0;
+                const isLoss = typeof p.profit_amount === 'number' && p.profit_amount < 0;
+                const badgeColor = isProfit ? 'var(--accent-green)' : (isLoss ? 'var(--accent-red)' : 'var(--text-secondary)');
+                const sign = isProfit ? '+' : '';
+
+                let timeStr = '—';
+                if (p.timestamp) {
+                    try {
+                        const d = new Date(p.timestamp);
+                        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    } catch (e) { }
+                }
+
+                const dir = (p.direction || '').toUpperCase();
+                const dirClass = dir.includes('BUY') ? 'buy' : 'sell';
+
                 return `
-                    <div style="padding:8px 0; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; gap:12px; align-items:center;">
-                        <div style="flex:1">
-                            <div style="font-weight:700">${p.symbol} • ${p.direction}</div>
-                            <div style="font-size:12px; color:var(--text-secondary);">Giriş: ${p.entry_price || '—'} • Şu an: ${p.current_price || '—'}</div>
+                    <div style="display: grid; grid-template-columns: 1.2fr 0.8fr 2fr 1.2fr 1.2fr; gap: 15px; padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                        <!-- Enstrüman -->
+                        <div>
+                            <div style="font-weight: 800; font-size: 16px; color: var(--text-primary); cursor: default;">${p.symbol}</div>
+                            <div style="display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+                                <span class="signal-type ${dirClass}" style="padding: 1px 6px; font-size: 10px;">${dir}</span>
+                                <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 3px;">${Number(p.position_size || 0).toFixed(2)} LOT</span>
+                            </div>
                         </div>
-                        <div style="text-align:right; min-width:200px;">
-                            <div style="font-weight:700; color:${badgeColor};">${status} • $${profitAmt}</div>
-                            <div style="font-size:12px; color:var(--text-secondary);">Pips: ${profitPips} • İşlem Boyutu: $${notional}</div>
+
+                        <!-- Açılış Zamanı -->
+                        <div style="font-size: 13px; color: var(--text-secondary);">
+                            ${timeStr}
+                        </div>
+
+                        <!-- Seviyeler -->
+                        <div style="font-size: 12px; line-height: 1.4;">
+                            <div style="color: var(--text-secondary)">Giriş: <span style="color: var(--text-primary); font-weight: 600;">${Number(p.entry_price || 0).toFixed(5)}</span></div>
+                            <div style="display: flex; gap: 12px; margin-top: 2px;">
+                                <span><span style="color: rgba(30, 215, 96, 0.7)">TP:</span> <span style="font-weight: 500;">${Number(p.take_profit || 0).toFixed(5)}</span></span>
+                                <span><span style="color: rgba(255, 82, 82, 0.7)">SL:</span> <span style="font-weight: 500;">${Number(p.stop_loss || 0).toFixed(5)}</span></span>
+                            </div>
+                        </div>
+
+                        <!-- Güncel Fiyat -->
+                        <div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 2px;">Anlık</div>
+                            <div style="font-weight: 700; font-size: 14px; color: var(--accent-blue);">${Number(p.current_price || 0).toFixed(5)}</div>
+                        </div>
+
+                        <!-- Sonuç -->
+                        <div style="text-align: right;">
+                            <div style="font-weight: 900; font-size: 20px; color: ${badgeColor}; letter-spacing: -0.5px;">
+                                ${sign}$${profitAmt}
+                            </div>
+                            <div style="font-size: 11px; color: var(--text-secondary); font-weight: 500;">
+                                ${profitPips} Pips • $${notional}
+                            </div>
                         </div>
                     </div>
                 `;
             }).join('');
+
+            content.innerHTML = header + rows;
         }
 
         async function fetchArchiveMeta() {
@@ -578,8 +655,8 @@
                 if (m.last_deletion) {
                     const d = new Date(m.last_deletion.replace(' ', 'T'));
                     const diff = Date.now() - d.getTime();
-                    const days = Math.floor(diff / (1000*60*60*24));
-                    const hours = Math.floor((diff % (1000*60*60*24)) / (1000*60*60));
+                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
                     el.innerText = `Son silme: ${days} gün ${hours} saat önce`;
                 } else {
                     el.innerText = '';
@@ -781,9 +858,15 @@
             }
         }
 
-        // Her 5 saniyede bir güncelle
-        fetchSignals();
-        setInterval(fetchSignals, 5000);
+        // Her 5 saniyede bir tüm verileri güncelle
+        function refreshDashboard() {
+            fetchSignals();
+            fetchOpenPositions();
+            fetchPositionPlan();
+        }
+
+        refreshDashboard();
+        setInterval(refreshDashboard, 5000);
     </script>
 </body>
 

@@ -109,6 +109,10 @@ class TradePerformanceTracker:
         Returns:
             Trade ID
         """
+        if str(direction).upper() not in ["BUY", "SELL"]:
+            logger.info(f"ℹ️ Decision '{direction}' is not a trade. Skipping DB log.")
+            return -1
+
         # Prevent duplicate pending trades for same symbol/direction near same price
         tol = duplicate_tolerance if duplicate_tolerance is not None else getattr(config, 'REENTRY_PRICE_TOLERANCE', 0.001)
         entry_price = llm_decision.get("entry_price")

@@ -77,11 +77,14 @@ class RiskManager:
         value_per_pip = 1.0  # 0.1 lot için pip başına USD
         
         # Pozisyon büyüklüğünü hesapla
+        # Eğer kullanıcı "1 loot" gibi sabit bir lot istiyorsa veya bakiye kısıtlıysa 
+        # buradaki formülü ona göre yorumlayabiliriz.
         position_size = risk_amount / (sl_distance_pips * value_per_pip) * 0.1
         
         # 2 ondalık basamağa yuvarla
         position_size = round(position_size, 2)
         
+        # Kullanıcı "1 lot" örneği verdiği için eğer bakiye yetiyorsa 0.1 ve üzeri makul
         # Minimum lot büyüklüğünü sağla
         if position_size < 0.01:
             position_size = 0.01

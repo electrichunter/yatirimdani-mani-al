@@ -130,28 +130,8 @@ class LLMDecisionEngine:
                 decision_data["stop_loss"] = "BEKLEMEDE"
                 decision_data["take_profit"] = "BEKLEMEDE"
 
-            # Kaydet: Öğrenme sistemine bir karar kaydı bırak
-            try:
-                direction_for_log = decision_data.get('decision', context.get('direction', 'N/A'))
-                self.learning_system.log_trade_decision(
-                    symbol=symbol,
-                    direction=direction_for_log,
-                    context={
-                        'technical_score': context.get('technical_score'),
-                        'news_sentiment': context.get('news_sentiment'),
-                        'technical_signals': context.get('technical_signals', {})
-                    },
-                    llm_decision=decision_data,
-                    dry_run=config.DRY_RUN
-                )
-            except Exception as e:
-                logger.warning(f"Öğrenme kaydı başarısız: {e}")
-
-            # Küçük örnek eşiğiyle pattern analizi çalıştır
-            try:
-                self.learning_system.analyze_patterns(min_samples=1)
-            except Exception:
-                pass
+            # Not: log_trade_decision artık main.py'de merkezi olarak yapılıyor.
+            # Böylece mükerrer (duplicate) kayıtların önüne geçiliyor.
 
             # Kısa bekleme yok; ana döngü pass'leri arasında bekleme uygulanacak
             result_for_log = {

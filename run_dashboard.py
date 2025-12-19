@@ -64,7 +64,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 'losses': 0,
                 'pending': 0,
                 'success_rate': 0.0,
-                'virtual_balance': getattr(config, 'VIRTUAL_BALANCE', 100.0)
+                'virtual_balance': getattr(config, 'VIRTUAL_BALANCE', 100.0),
+                'used_balance': 0.0,
+                'free_balance': getattr(config, 'VIRTUAL_BALANCE', 100.0)
             }
             if os.path.exists(db_path):
                 try:
@@ -80,6 +82,43 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     stats['pending'] = cur.fetchone()[0] or 0
                     if stats['total_trades'] > 0:
                         stats['success_rate'] = round(100.0 * stats['wins'] / stats['total_trades'], 2)
+                    # compute used balance from pending trades (approximate notional)
+                    try:
+                        broker = None
+                        if YFinanceBroker is not None:
+                            try:
+                                broker = YFinanceBroker()
+                            except Exception:
+                                broker = None
+
+                        total_balance = getattr(config, 'VIRTUAL_BALANCE', None) if getattr(config, 'DRY_RUN', False) else None
+                        if total_balance is None and broker is not None:
+                            try:
+                                total_balance = broker.get_balance()
+                            except Exception:
+                                total_balance = getattr(config, 'VIRTUAL_BALANCE', 100.0)
+
+                        used = 0.0
+                        cur.execute("SELECT symbol, position_size FROM trade_history WHERE outcome = 'PENDING'")
+                        pend = cur.fetchall()
+                        for sym, psize in pend:
+                            try:
+                                lot = float(psize) if psize and float(psize) > 0 else getattr(config, 'MIN_DISPLAY_LOT', 0.01)
+                                price = None
+                                if broker is not None:
+                                    try:
+                                        price = broker.get_current_price(sym)
+                                    except Exception:
+                                        price = None
+                                if price:
+                                    used += lot * 100000 * float(price)
+                            except Exception:
+                                continue
+
+                        stats['used_balance'] = round(used, 2)
+                        stats['free_balance'] = round((float(total_balance or getattr(config, 'VIRTUAL_BALANCE', 100.0)) - used), 2)
+                    except Exception:
+                        pass
                     conn.close()
                 except Exception:
                     pass
@@ -163,16 +202,31 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                             entry_f = float(entry)
                             current_f = float(current)
                             profit = (current_f - entry_f) if (str(direction).upper().startswith('BUY')) else (entry_f - current_f)
-                            pip_mul = 100 if 'JPY' in (symbol or '') else 10000
+                            is_usdjpy = 'JPY' in (symbol or '')
+                            contract_size = 100000
+                            pip_mul = 100 if is_usdjpy else 10000
                             profit_pips = round(abs(profit) * pip_mul, 2)
-                            # approximate notional for forex: lot * 100000 * price
-                            notional_usd = round(display_lot * 100000 * current_f, 2)
-                            profit_amount = round(profit * display_lot * 100000, 2)
+                            
+                            # Standardize to USD
+                            if str(symbol).startswith("USD"): # Base is USD (e.g. USDJPY)
+                                notional_usd = round(display_lot * contract_size, 2)
+                                # Profit in JPY = profit * lot * 100k -> convert to USD
+                                profit_amount = round((profit * display_lot * contract_size) / current_f, 2)
+                            else: # Quote is USD (e.g. EURUSD, XAUUSD)
+                                notional_usd = round(display_lot * contract_size * current_f, 2)
+                                profit_amount = round(profit * display_lot * contract_size, 2)
                         else:
                             # No valid entry -> leave values None so UI shows placeholders
                             profit_pips = None
                             profit_amount = None
-                            notional_usd = round(display_lot * (float(current) if current else 0), 2) if display_lot and current else None
+                            if display_lot and current:
+                                current_f = float(current)
+                                if str(symbol).startswith("USD"):
+                                    notional_usd = round(display_lot * 100000, 2)
+                                else:
+                                    notional_usd = round(display_lot * 100000 * current_f, 2)
+                            else:
+                                notional_usd = None
                     except Exception:
                         profit_pips = None
                         profit_amount = None
@@ -183,6 +237,8 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                         'symbol': symbol,
                         'direction': direction,
                         'entry_price': entry,
+                        'stop_loss': rec.get('stop_loss'),
+                        'take_profit': rec.get('take_profit'),
                         'current_price': current,
                         'position_size': display_lot,
                         'profit_pips': profit_pips,

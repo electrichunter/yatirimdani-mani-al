@@ -146,8 +146,26 @@ class UIFormatter:
                 self.all_results = []
         except:
             self.all_results = []
+
+        # Deduplication (Mükerrer Kaydı Önle):
+        # Eğer bu sembol için son karar aynıysa ve bu bir "BEKLE" (Wait) kararıysa, kaydetme.
+        # Bu, dashboard'un aynı mesajlarla dolmasını engeller.
+        try:
+            current_decision = str(signal_data.get('decision', '')).upper()
+            is_wait_state = "BEKLE" in current_decision
             
-        # Yeni sonucu ekle (son 200 kaydı tut - Tarihçe için artırıldı)
+            # Sonuçlar listesinde bu sembolü bul
+            last_entry = next((r for r in self.all_results if r.get('symbol') == symbol), None)
+            if last_entry and is_wait_state:
+                last_decision = str(last_entry.get('data', {}).get('decision', '')).upper()
+                if last_decision == current_decision:
+                    # Karar aynı ve bir bekleme hali, arşivleme de istenmiyorsa çık
+                    if not archive:
+                        return
+        except Exception:
+            pass
+            
+        # Yeni sonucu ekle (son 200 kaydı tut)
         self.all_results.insert(0, result)
         self.all_results = self.all_results[:200]
         

@@ -48,13 +48,21 @@ MT5_PATH = os.getenv("MT5_PATH", "") # Opsiyonel: terminal64.exe yolu
 # [ ... içerik gizlendi ... ]
 
 TIMEFRAMES = {
+    "M1": "1 dakika",
+    "M5": "5 dakika",
+    "M15": "15 dakika",
+    "M30": "30 dakika",
     "H1": "1 saat",
     "H4": "4 saat",
-    "D1": "1 gün"
+    "D1": "1 gün",
+    "W1": "1 hafta"
 }
 
+# Seçilen zaman dilimi (main.py'de kullanıcı tarafından belirlenecek)
+SELECTED_TIMEFRAME = "H1"
+
 # Risk Yönetimi
-RISK_PERCENT = 1.0  # İşlem başına hesap bakiyesinin %1'ini riske at
+RISK_PERCENT = 10.0  # İşlem başına hesap bakiyesinin %10'unu riske at (Kullanıcı Talebi)
 MIN_RISK_REWARD_RATIO = 1.5  # Daha agresif işlemler için düşürüldü (önceden 2.0 idi)
 MAX_DAILY_TRADES = 10  # Daha fazla aktivite için artırıldı
 MAX_OPEN_POSITIONS = 5  # Daha fazla aktivite için artırıldı
@@ -138,7 +146,7 @@ NEWS_DB_PATH = "./database/news.db"
 # ==========================================
 # SİSTEM YAPILANDIRMASI
 # ==========================================
-CHECK_INTERVAL = 300  # Piyasaları her 5 dakikada bir kontrol et (saniye cinsinden)
+CHECK_INTERVAL = 60  # Daha hızlı kontrol (1 dakika)
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
 LOG_FILE = "./logs/trading.log"
 ERROR_LOG_FILE = "./logs/errors.log"
@@ -147,7 +155,7 @@ ERROR_LOG_FILE = "./logs/errors.log"
 # PERFORMANS VE ANALİZ OPTİMİZASYONU (RAG-SIZ SİSTEM)
 # ==========================================
 ENABLE_GPU = True          # LLM'in kendisini GPU'da çalıştırmak için True
-MAX_VRAM_MB = 3500         # Sistem stabilitesi için 4GB'ın biraz altında (3.5GB) tutun
+MAX_VRAM_MB = 2000         # Sistem stabilitesi için 4GB'ın biraz altında (3.5GB) tutun afk bırtakacagım için ekran kartını yormamamk amacı ile 
 LAZY_LOAD_LLM = False      # RAG olmadığı için doğrudan LLM ile başlayacağız
 CACHE_EMBEDDINGS = False   # Vektörleme yapılmayacağı için bellek harcamasın
  
