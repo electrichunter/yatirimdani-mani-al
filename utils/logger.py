@@ -1,6 +1,6 @@
 """
-Logging Configuration for Sniper Trading Bot
-Provides colored console output and file logging
+Sniper Trading Bot için Günlükleme (Logging) Yapılandırması
+Renkli konsol çıktısı ve dosya günlüklemesi sağlar
 """
 
 import logging
@@ -11,26 +11,26 @@ import config
 
 def setup_logger(name="SniperBot"):
     """
-    Setup logger with colored console output and file logging
+    Renkli konsol çıktısı ve dosya günlüklemesi ile logger'ı kurar
     
-    Args:
-        name: Logger name
+    Argümanlar:
+        name: Logger adı
         
-    Returns:
-        Configured logger instance
+    Döner:
+        Yapılandırılmış logger nesnesi
     """
-    # Create logs directory if it doesn't exist
+    # Mevcut değilse logs dizinini oluştur
     os.makedirs("logs", exist_ok=True)
     
-    # Create logger
+    # Logger oluştur
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, config.LOG_LEVEL))
     
-    # Avoid duplicate handlers
+    # Mükerrer işleyicileri önle
     if logger.handlers:
         return logger
     
-    # Console Handler with colors
+    # Renkli Konsol İşleyicisi
     console_handler = colorlog.StreamHandler()
     console_handler.setLevel(logging.DEBUG)
     
@@ -49,7 +49,7 @@ def setup_logger(name="SniperBot"):
     console_handler.setFormatter(console_format)
     logger.addHandler(console_handler)
     
-    # File Handler for general logs
+    # Genel günlükler için Dosya İşleyicisi
     file_handler = logging.FileHandler(config.LOG_FILE, encoding='utf-8')
     file_handler.setLevel(logging.INFO)
     file_format = logging.Formatter(
@@ -59,7 +59,7 @@ def setup_logger(name="SniperBot"):
     file_handler.setFormatter(file_format)
     logger.addHandler(file_handler)
     
-    # File Handler for errors only
+    # Sadece hatalar için Dosya İşleyicisi
     error_handler = logging.FileHandler(config.ERROR_LOG_FILE, encoding='utf-8')
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(file_format)
@@ -70,32 +70,31 @@ def setup_logger(name="SniperBot"):
 
 def log_trade_decision(logger, symbol, stage, result, **kwargs):
     """
-    Log trade filtering decision in a structured format
+    Ticaret filtreleme kararını yapılandırılmış bir formatta günlükler
     
-    Args:
-        logger: Logger instance
-        symbol: Trading symbol
-        stage: Filter stage (1, 2, or 3)
-        result: Pass/Fail result
-        **kwargs: Additional information to log
+    Argümanlar:
+        logger: Logger nesnesi
+        symbol: Ticari varlık
+        stage: Filtre aşaması (1, 2 veya 3)
+        result: Geçti/Kaldı sonucu
+        **kwargs: Günlüklenmek istenen ek bilgiler
     """
-    status = "✅ PASSED" if result.get("pass", False) else "❌ FAILED"
+    status = "✅ GEÇTİ" if result.get("pass", False) or result.get("decision") != "PASS" else "❌ KALDI"
     
-    msg = f"[Stage {stage}] {symbol} - {status}"
+    msg = f"[{stage}. Aşama] {symbol} - {status}"
     
     if "score" in result:
-        msg += f" (Score: {result['score']})"
+        msg += f" (Skor: {result['score']})"
     if "confidence" in result:
-        msg += f" (Confidence: {result['confidence']}%)"
+        msg += f" (Güven: %{result['confidence']})"
     if "reason" in result:
         msg += f" - {result['reason']}"
     
-    if result.get("pass", False):
+    if result.get("pass", False) or result.get("decision") != "PASS":
         logger.info(msg)
     else:
         logger.debug(msg)
     
-    # Log additional details
+    # Ek detayları günlükle
     for key, value in kwargs.items():
         logger.debug(f"  {key}: {value}")
-    

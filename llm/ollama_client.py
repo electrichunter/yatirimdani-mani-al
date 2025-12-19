@@ -1,6 +1,6 @@
 """
-Ollama Client for Local LLM Inference
-Optimized for RTX 3050 4GB VRAM
+Yerel LLM Çıkarımı için Ollama İstemcisi
+RTX 3050 4GB VRAM için optimize edilmiştir
 """
 
 import requests
@@ -12,23 +12,23 @@ logger = setup_logger("OllamaClient")
 
 
 class OllamaClient:
-    """Client for Ollama API"""
+    """Ollama API İstemcisi"""
     
     def __init__(self, model_name=None, host=None):
         """
-        Args:
-            model_name: Model to use (default from config)
-            host: Ollama host URL (default localhost)
+        Argümanlar:
+            model_name: Kullanılacak model (varsayılanı config'den alır)
+            host: Ollama ana bilgisayar URL'si (varsayılan localhost)
         """
         self.model_name = model_name or config.LLM_MODEL
-        self.host = host or "http://localhost:11434"
+        self.host = host or "http://127.0.0.1:11434"
         self.api_url = f"{self.host}/api/generate"
         
-        # Check if Ollama is running
+        # Ollama'nın çalışıp çalışmadığını kontrol et
         self.check_connection()
     
     def check_connection(self):
-        """Verify Ollama server is running"""
+        """Ollama sunucusunun çalıştığını doğrula"""
         try:
             response = requests.get(f"{self.host}/api/tags", timeout=5)
             if response.status_code == 200:
@@ -36,30 +36,30 @@ class OllamaClient:
                 model_names = [m["name"] for m in models]
                 
                 if self.model_name in model_names:
-                    logger.info(f"✅ Ollama connected, model '{self.model_name}' available")
+                    logger.info(f"✅ Ollama bağlandı, '{self.model_name}' modeli mevcut")
                 else:
-                    logger.warning(f"⚠️ Model '{self.model_name}' not found. Available: {model_names}")
-                    logger.warning(f"   Run: ollama pull {self.model_name}")
+                    logger.warning(f"⚠️ '{self.model_name}' modeli bulunamadı. Mevcut modeller: {model_names}")
+                    logger.warning(f"   Çalıştırın: ollama pull {self.model_name}")
             else:
-                logger.error("❌ Ollama server not responding")
+                logger.error("❌ Ollama sunucusu yanıt vermiyor")
         
         except requests.RequestException as e:
-            logger.error(f"❌ Cannot connect to Ollama at {self.host}")
-            logger.error(f"   Make sure Ollama is running: ollama serve")
-            logger.error(f"   Error: {str(e)}")
+            logger.error(f"❌ {self.host} adresindeki Ollama'ya bağlanılamıyor")
+            logger.error(f"   Ollama'nın çalıştığından emin olun: ollama serve")
+            logger.error(f"   Hata: {str(e)}")
     
     def generate(self, prompt, system_prompt=None, temperature=None, max_tokens=None):
         """
-        Generate response from Ollama
+        Ollama'dan yanıt üret
         
-        Args:
-            prompt: User prompt
-            system_prompt: System prompt
-            temperature: Sampling temperature (default from config)
-            max_tokens: Max tokens to generate (default from config)
+        Argümanlar:
+            prompt: Kullanıcı komutu
+            system_prompt: Sistem komutu
+            temperature: Örnekleme sıcaklığı (varsayılanı config'den alır)
+            max_tokens: Üretilecek maksimum token sayısı (varsayılanı config'den alır)
             
-        Returns:
-            Generated text response
+        Döner:
+            Üretilen metin yanıtı
         """
         if temperature is None:
             temperature = config.LLM_TEMPERATURE
@@ -71,10 +71,11 @@ class OllamaClient:
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
-            "format": "json",  # Force JSON output (Ollama 0.1.0+)
             "options": {
                 "temperature": temperature,
-                "num_predict": max_tokens
+                "num_predict": max_tokens,
+                "top_p": getattr(config, "LLM_TOP_P", 0.1),
+                "num_ctx": getattr(config, "LLM_CONTEXT_WINDOW", 2048)
             }
         }
         
@@ -82,42 +83,42 @@ class OllamaClient:
             payload["system"] = system_prompt
         
         try:
-            logger.debug(f"🤖 Sending request to Ollama ({self.model_name})...")
+            logger.debug(f"🤖 Ollama'ya ({self.model_name}) istek gönderiliyor...")
             
-            response = requests.post(self.api_url, json=payload, timeout=120)  # Increased from 60 to 120s
+            response = requests.post(self.api_url, json=payload, timeout=180)  # 4GB GPU'lar için 180s yapıldı
             
             if response.status_code == 200:
                 result = response.json()
                 generated_text = result.get("response", "")
                 
-                logger.debug(f"✅ LLM response received ({len(generated_text)} chars)")
+                logger.debug(f"✅ LLM yanıtı alındı ({len(generated_text)} karakter)")
                 
                 return generated_text
             else:
-                logger.error(f"❌ Ollama API error: {response.status_code}")
+                logger.error(f"❌ Ollama API hatası: {response.status_code}")
                 return None
         
         except requests.Timeout:
-            logger.error("❌ Ollama request timed out")
+            logger.error("❌ Ollama isteği zaman aşımına uğradı")
             return None
         
         except Exception as e:
-            logger.error(f"❌ Ollama generation failed: {str(e)}")
+            logger.error(f"❌ Ollama üretimi başarısız oldu: {str(e)}")
             return None
     
     def generate_json(self, prompt, system_prompt=None):
         """
-        Generate JSON response (with format enforcement)
+        JSON yanıtı üret (format zorlaması ile)
         
-        Args:
-            prompt: User prompt
-            system_prompt: System prompt
+        Argümanlar:
+            prompt: Kullanıcı komutu
+            system_prompt: Sistem komutu
             
-        Returns:
-            Parsed JSON dict or None if failed
+        Döner:
+            Ayrıştırılmış JSON sözlüğü veya başarısız olursa None
         """
-        # Add JSON format instruction to prompt
-        json_instruction = "\nRespond ONLY with valid JSON. Do not include any markdown formatting or explanations."
+        # Komuta JSON formatı talimatını ekle
+        json_instruction = "\nSADECE geçerli JSON ile yanıt ver. Markdown formatı veya açıklama ekleme."
         full_prompt = prompt + json_instruction
         
         response_text = self.generate(full_prompt, system_prompt, temperature=0.1)
@@ -125,9 +126,9 @@ class OllamaClient:
         if not response_text:
             return None
         
-        # Try to parse JSON
+        # JSON ayrıştırmayı dene
         try:
-            # Remove markdown code blocks if present
+            # Varsa markdown kod bloklarını kaldır
             cleaned = response_text.strip()
             if cleaned.startswith("```json"):
                 cleaned = cleaned[7:]
@@ -141,6 +142,6 @@ class OllamaClient:
             return json.loads(cleaned)
         
         except json.JSONDecodeError as e:
-            logger.error(f"❌ Failed to parse JSON response: {str(e)}")
-            logger.debug(f"Raw response: {response_text[:200]}...")
+            logger.error(f"❌ JSON yanıtı ayrıştırılamadı: {str(e)}")
+            logger.debug(f"Ham yanıt: {response_text[:200]}...")
             return None

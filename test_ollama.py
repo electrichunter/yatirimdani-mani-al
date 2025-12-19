@@ -1,32 +1,26 @@
-
 import requests
 import json
-import time
 
-MODEL = "tinyllama:latest"
-URL = "http://localhost:11434/api/generate"
-
-print(f"Testing Ollama connexion with model: {MODEL}")
-
-payload = {
-    "model": MODEL,
-    "prompt": "Why is the sky blue?",
-    "stream": False
-}
-
-try:
-    start = time.time()
-    response = requests.post(URL, json=payload, timeout=60)
-    end = time.time()
+def test_ollama():
+    url = "http://127.0.0.1:11434/api/generate"
+    payload = {
+        "model": "deepseek-r1:1.5b",
+        "prompt": "Say 'Bağlantı Başarılı' and nothing else.",
+        "stream": False
+    }
     
-    print(f"Status Code: {response.status_code}")
-    if response.status_code == 200:
-        print("Success!")
-        print(f"Time taken: {end - start:.2f}s")
-        data = response.json()
-        print(f"Response: {data.get('response', 'No response field')[:100]}...")
-    else:
-        print(f"Error: {response.text}")
-        
-except Exception as e:
-    print(f"Connection Failed: {e}")
+    try:
+        print(f"🔄 Ollama bağlantısı test ediliyor (model: deepseek-r1:1.5b)...")
+        response = requests.post(url, json=payload, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ BAĞLANTI BAŞARILI!")
+            print(f"🤖 LLM Yanıtı: {result.get('response')}")
+        else:
+            print(f"❌ HATA: Durum kodu {response.status_code}")
+            print(response.text)
+    except Exception as e:
+        print(f"❌ BAĞLANTI HATASI: {str(e)}")
+
+if __name__ == "__main__":
+    test_ollama()

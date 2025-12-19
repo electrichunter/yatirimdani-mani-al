@@ -1,6 +1,6 @@
 """
-Sniper Trading Bot - Configuration Management
-Optimized for NVIDIA RTX 3050 (4GB VRAM)
+Sniper Trading Bot - Yapılandırma Yönetimi
+NVIDIA RTX 3050 (4GB VRAM) için optimize edilmiştir
 """
 
 import os
@@ -9,27 +9,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==========================================
-# TRADING MODE
+# İŞLEM MODU
 # ==========================================
-DRY_RUN = True  # If True, only shows trade recommendations without executing
-                # Set to False for live trading (test thoroughly first!)
+DRY_RUN = True  # True ise, sadece işlem önerilerini gösterir, uygulama yapmaz
+                # Gerçek işlemler için False yapın (önce iyice test edin!)
 
-DEMO_MODE = True  # If True, uses simulated market data (no MT5 needed)
-                  # Set to False to use real MT5 data
-
-# ==========================================
-# TRADING CONFIGURATION
-# ==========================================
-
-# 100+ Farklı Varlık - Forex, Emtia, İndeks, Kripto
-# Not: Hafıza sorunu için şimdilik tek sembol ve tek zaman dilimi
-SYMBOLS = ["EURUSD=X", "GC=F", "SI=F"]
+DEMO_MODE = True  # True ise, simüle edilmiş piyasa verilerini kullanır (MT5 gerekmez)
+                  # Gerçek MT5 verilerini kullanmak için False yapın
 
 # ==========================================
-# MT5 CONFIGURATION (Moved to .env for security)
+# İŞLEM YAPILANDIRMASI
+# ==========================================
+ 
+# Not: Hafıza sorunu için şimdilik sınırlı sembol ve zaman dilimi
+SYMBOLS = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F"]
+
+# ==========================================
+# MT5 YAPILANDIRMASI  (şu anda çalışmıyor)
 # ==========================================
 MT5_LOGIN = os.getenv("MT5_LOGIN", "")
-# Convert to int if exists, MetaTrader 5 expects an integer login
+# Varsa int'e çevir, MetaTrader 5 tamsayı giriş bekler
 if MT5_LOGIN and MT5_LOGIN.isdigit():
     MT5_LOGIN = int(MT5_LOGIN)
 else:
@@ -37,161 +36,89 @@ else:
 
 MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
 MT5_SERVER = os.getenv("MT5_SERVER", "")
-MT5_PATH = os.getenv("MT5_PATH", "") # Optional: Path to terminal64.exe
+MT5_PATH = os.getenv("MT5_PATH", "") # Opsiyonel: terminal64.exe yolu
 
-# SYMBOLS_FULL = [
-#     # === MAJOR FOREX ÇİFTLERİ (28) ===
-#     "EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDCHF=X", "AUDUSD=X", "USDCAD=X", "NZDUSD=X",
-#     "EURGBP=X", "EURJPY=X", "EURCHF=X", "EURAUD=X", "EURCAD=X", "EURNZD=X",
-#     "GBPJPY=X", "GBPCHF=X", "GBPAUD=X", "GBPCAD=X", "GBPNZD=X",
-#     "AUDJPY=X", "AUDCHF=X", "AUDCAD=X", "AUDNZD=X", "XAUUSD" ,
-#     "CADJPY=X", "CADCHF=X",
-#     "CHFJPY=X",
-#     "NZDJPY=X", "NZDCHF=X", "NZDCAD=X",
-#     XAGUSD
-#     # === EXOTIC FOREX (10) ===
-#     "USDTRY=X", "USDZAR=X", "USDMXN=X", "USDBRL=X", "USDRUB=X",
-#     "USDKRW=X", "USDINR=X", "USDSGD=X", "USDHKD=X", "USDTHB=X",
-#     
-#     # === DEĞERLİ MADENLER (6) ===
-#     "GC=F",     # Gold (Altın)
-#     "SI=F",     # Silver (Gümüş)
-#     "PL=F",     # Platinum (Platin)
-#     "PA=F",     # Palladium (Paladyum)
-#     "HG=F",     # Copper (Bakır)
-#     "ALI=F",    # Aluminum (Alüminyum)
-#     
-#     # === ENERJİ (4) ===
-#     "CL=F",     # Crude Oil WTI (Ham Petrol)
-#     "BZ=F",     # Brent Crude Oil
-#     "NG=F",     # Natural Gas (Doğal Gaz)
-#     "RB=F",     # Gasoline (Benzin)
-#     
-#     # === TAHILLAR & TARIM (8) ===
-#     "ZC=F",     # Corn (Mısır)
-#     "ZW=F",     # Wheat (Buğday)
-#     "ZS=F",     # Soybeans (Soya Fasulyesi)
-#     "KC=F",     # Coffee (Kahve)
-#     "SB=F",     # Sugar (Şeker)
-#     "CT=F",     # Cotton (Pamuk)
-#     "CC=F",     # Cocoa (Kakao)
-#     "OJ=F",     # Orange Juice (Portakal Suyu)
-#     
-#     # === AMERİKA İNDEKSLERİ (7) ===
-#     "^GSPC",    # S&P 500
-#     "^DJI",     # Dow Jones
-#     "^IXIC",    # NASDAQ
-#     "^RUT",     # Russell 2000
-#     "^VIX",     # Volatility Index
-#     "ES=F",     # E-mini S&P 500 Futures
-#     "NQ=F",     # E-mini NASDAQ Futures
-#     
-#     # === AVRUPA İNDEKSLERİ (5) ===
-#     "^FTSE",    # FTSE 100 (UK)
-#     "^GDAXI",   # DAX (Germany)
-#     "^FCHI",    # CAC 40 (France)
-#     "^STOXX50E",# Euro Stoxx 50
-#     "^AEX",     # AEX (Netherlands)
-#     
-#     # === ASYA-PASİFİK İNDEKSLERİ (6) ===
-#     "^N225",    # Nikkei 225 (Japan)
-#     "^HSI",     # Hang Seng (Hong Kong)
-#     "000001.SS",# Shanghai Composite
-#     "^AXJO",    # ASX 200 (Australia)
-#     "^KS11",    # KOSPI (South Korea)
-#     "^TWII",    # Taiwan Weighted
-#     
-#     # === KRİPTO PARALAR (20) ===
-#     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "ADA-USD",
-#     "DOGE-USD", "SOL-USD", "DOT-USD", "MATIC-USD", "LTC-USD",
-#     "SHIB-USD", "TRX-USD", "AVAX-USD", "UNI-USD", "LINK-USD",
-#     "ATOM-USD", "XLM-USD", "ALGO-USD", "VET-USD", "FIL-USD",
-#     
-#     # === TÜRK VARLIKLAR (6) ===
-#     "XU100.IS",  # BIST 100
-#     "GARAN.IS",  # Garanti Bankası
-#     "EREGL.IS",  # Ereğli Demir Çelik
-#     "THYAO.IS",  # Türk Hava Yolları
-#     "AKBNK.IS",  # Akbank
-#     "TUPRS.IS",  # Tüpraş
-# ]
+# SYMBOLS_FULL Listesi (Yedek/Referans için duruyor)
+# [ ... içerik gizlendi ... ]
 
 TIMEFRAMES = {
-    "H1": "1 hour",
-    "H4": "4 hours",
-    "D1": "1 day"
+    "H1": "1 saat",
+    "H4": "4 saat",
+    "D1": "1 gün"
 }
 
-# Risk Management
-RISK_PERCENT = 1.0  # Risk 1% of account per trade
-MIN_RISK_REWARD_RATIO = 1.5  # Lowered for more aggressive trading (was 2.0)
-MAX_DAILY_TRADES = 10  # Increased for more activity
-MAX_OPEN_POSITIONS = 5  # Increased for more activity
+# Risk Yönetimi
+RISK_PERCENT = 1.0  # İşlem başına hesap bakiyesinin %1'ini riske at
+MIN_RISK_REWARD_RATIO = 1.5  # Daha agresif işlemler için düşürüldü (önceden 2.0 idi)
+MAX_DAILY_TRADES = 10  # Daha fazla aktivite için artırıldı
+MAX_OPEN_POSITIONS = 5  # Daha fazla aktivite için artırıldı
 
 # ==========================================
-# FILTER THRESHOLDS (SNIPER MODE)
+# FİLTRE EŞİKLERİ (SNIPER MODU)
 # ==========================================
 
-# Stage 1: Technical Filter
+# 1. Aşama: Teknik Filtre
 TECHNICAL_MIN_SCORE = 10  # Test için düşürüldü (Normalde 70)
 RSI_OVERSOLD = 30
 RSI_OVERBOUGHT = 70
-VOLUME_MULTIPLIER = 1.5  # Must be 1.5x average volume
+VOLUME_MULTIPLIER = 1.5  # Ortalama hacmin 1.5 katı olmalı
 
-# Stage 2: News Filter
+# 2. Aşama: Haber Filtresi
 NEWS_LOOKBACK_HOURS = 24
-MIN_NEWS_SENTIMENT = 50  # Out of 100 (must align with trade direction)
-NEWS_IMPACT_LEVELS = ["HIGH", "MEDIUM"]  # Ignore LOW impact news
+MIN_NEWS_SENTIMENT = 50  # 100 üzerinden (işlem yönüyle uyumlu olmalı)
+NEWS_IMPACT_LEVELS = ["HIGH", "MEDIUM"]  # DÜŞÜK etkili haberleri yoksay
 
-# Stage 3: LLM Decision
-MIN_CONFIDENCE = 70  # Minimum confidence to execute (was 90)
+# 3. Aşama: LLM Kararı
+MIN_CONFIDENCE = 70  # Uygulama için minimum güven (önceden 90 idi)
 
 # ==========================================
-# LLM BACKEND SELECTION
+# LLM ARKA UÇ SEÇİMİ
 # ==========================================
-USE_GEMINI_API = True  # ✅ RECOMMENDED: Fast, reliable, free tier (1500 req/day)
-                       # False = Use local Ollama (slower, requires GPU)
+USE_GEMINI_API = True  # ✅ ÖNERİLEN: Hızlı, güvenilir, ücretsiz kota (günde 1500 istek)
+                       # False = Yerel Ollama kullan (daha yavaş, GPU gerektirir)
 
-# Gemini API Settings (if USE_GEMINI_API = True)
-GEMINI_MODEL = "gemini-2.0-flash"  # Latest stable high-performance model
-# GEMINI_MODEL = "gemini-2.5-flash"      # Experimental version
+# Gemini API Ayarları (USE_GEMINI_API = True ise)
+GEMINI_MODEL = "gemini-2.0-flash"  
+# GEMINI_MODEL = "gemini-2.5-flash"    
 
-# Ollama Settings (if USE_GEMINI_API = False)
-LLM_MODEL = "llama3.2:latest"  # ✅ EN HIZLI - 2GB, hızlı yanıt verir
-# LLM_MODEL = "phi3:latest"  # Alternatif: Microsoft modeli, hızlı (2.2GB)
-# LLM_MODEL = "mistral:latest"  # ❌ ÇOK YAVAŞ - Timeout veriyor (4.4GB)
+# Ollama Ayarları (USE_GEMINI_API = False ise)
+#LLM_MODEL = "deepseek-r1:1.5b"  # ✅ EN YENİ - DeepSeek R1 (Hızlı ve Mantıklı)
+LLM_MODEL = "mistral:latest"  # Alternatif: 4.4GB
 # LLM_MODEL = "tinyllama:latest"  # ❌ ÇOK KÜÇÜK - JSON formatını takip edemez (637MB)
 
-LLM_TEMPERATURE = 0.3  # Slightly higher for more creative/risky analysis
-LLM_MAX_TOKENS = 1024  # Increased for detailed reports
+LLM_TEMPERATURE = 0.0  # "Rüya görmeyi" (halüsinasyonu) engellemek için SIFIR
+LLM_TOP_P = 0.1        # Sadece en yüksek olasılıklı teknik sonuçlara odaklan
+LLM_MAX_TOKENS = 1024  # Detaylı raporlar için
+LLM_CONTEXT_WINDOW = 2048 # Forex verileri için yeterli, VRAM tasarrufu sağlar
 
 # ==========================================
-# RAG CONFIGURATION
+# RAG YAPILANDIRMASI
 # ==========================================
-ENABLE_RAG = False  # Set to False to disable RAG (Retrieval Augmented Generation)
-VECTOR_DB_TYPE = "chromadb"  # Options: chromadb, faiss
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Lightweight, fast embeddings
-RAG_TOP_K = 3  # Retrieve top 3 most relevant strategy excerpts
+ENABLE_RAG = False  # RAG'ı (Bilgi Geri Çağırma) devre dışı bırakmak için False yapın
+VECTOR_DB_TYPE = "chromadb"  # Seçenekler: chromadb, faiss
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Hafif, hızlı vektörleştirme modeli
+RAG_TOP_K = 3  # En ilgili 3 strateji parçasını getir
 RAG_DATA_PATH = "./data/strategies"
 VECTOR_DB_PATH = "./data/embeddings/chroma_db"
 
 # ==========================================
-# DATABASE CONFIGURATION
+# VERİTABANI YAPILANDIRMASI
 # ==========================================
 NEWS_DB_PATH = "./database/news.db"
 
 # ==========================================
-# SYSTEM CONFIGURATION
+# SİSTEM YAPILANDIRMASI
 # ==========================================
-CHECK_INTERVAL = 300  # Check markets every 5 minutes (seconds)
+CHECK_INTERVAL = 300  # Piyasaları her 5 dakikada bir kontrol et (saniye cinsinden)
 LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
 LOG_FILE = "./logs/trading.log"
 ERROR_LOG_FILE = "./logs/errors.log"
 
 # ==========================================
-# PERFORMANCE OPTIMIZATION
+# PERFORMANS VE ANALİZ OPTİMİZASYONU (RAG-SIZ SİSTEM)
 # ==========================================
-ENABLE_GPU = True  # Use GPU for embeddings (if available)
-MAX_VRAM_MB = 4000  # 4GB VRAM limit
-LAZY_LOAD_LLM = True  # Only load LLM when Stage 1 & 2 pass
-CACHE_EMBEDDINGS = True  # Cache RAG embeddings to reduce re-computation
+ENABLE_GPU = True          # LLM'in kendisini GPU'da çalıştırmak için True
+MAX_VRAM_MB = 3500         # Sistem stabilitesi için 4GB'ın biraz altında (3.5GB) tutun
+LAZY_LOAD_LLM = False      # RAG olmadığı için doğrudan LLM ile başlayacağız
+CACHE_EMBEDDINGS = False   # Vektörleme yapılmayacağı için bellek harcamasın
+ 

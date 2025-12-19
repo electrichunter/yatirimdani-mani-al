@@ -1,7 +1,7 @@
 """
-Stage 1: Technical Hard Filter
-Fast technical analysis without GPU usage
-Goal: Eliminate 90%+ of potential trades immediately
+1. Aşama: Teknik Sert Filtre
+GPU kullanımı gerektirmeyen hızlı teknik analiz
+Hedef: Potansiyel işlemlerin %90'ından fazlasını anında elemek
 """
 
 import pandas as pd
@@ -14,8 +14,8 @@ logger = setup_logger("TechnicalFilter")
 
 class TechnicalFilter:
     """
-    Technical indicator calculations and signal generation
-    No GPU required, pure Python/NumPy calculations
+    Teknik gösterge hesaplamaları ve sinyal üretimi
+    GPU gerektirmez, saf Python/NumPy hesaplamaları kullanır
     """
     
     def __init__(self):
@@ -23,14 +23,14 @@ class TechnicalFilter:
     
     def calculate_rsi(self, prices, period=14):
         """
-        Calculate Relative Strength Index
+        Göreceli Güç Endeksi (RSI) hesaplar
         
-        Args:
-            prices: pandas Series of closing prices
-            period: RSI period (default 14)
+        Argümanlar:
+            prices: Kapanış fiyatlarının pandas Serisi
+            period: RSI periyodu (varsayılan 14)
             
-        Returns:
-            RSI values as pandas Series
+        Döner:
+            pandas Serisi olarak RSI değerleri
         """
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -43,16 +43,16 @@ class TechnicalFilter:
     
     def calculate_macd(self, prices, fast=12, slow=26, signal=9):
         """
-        Calculate MACD (Moving Average Convergence Divergence)
+        MACD (Hareketli Ortalama Yakınsama Iraksama) hesaplar
         
-        Args:
-            prices: pandas Series of closing prices
-            fast: Fast EMA period (default 12)
-            slow: Slow EMA period (default 26)
-            signal: Signal line period (default 9)
+        Argümanlar:
+            prices: Kapanış fiyatlarının pandas Serisi
+            fast: Hızlı EMA periyodu (varsayılan 12)
+            slow: Yavaş EMA periyodu (varsayılan 26)
+            signal: Sinyal hattı periyodu (varsayılan 9)
             
-        Returns:
-            Dict with macd, signal, and histogram
+        Döner:
+            macd, sinyal ve histogramı içeren sözlük
         """
         ema_fast = prices.ewm(span=fast, adjust=False).mean()
         ema_slow = prices.ewm(span=slow, adjust=False).mean()
@@ -68,26 +68,26 @@ class TechnicalFilter:
         }
     
     def calculate_ema(self, prices, period):
-        """Calculate Exponential Moving Average"""
+        """Üssel Hareketli Ortalama (EMA) hesaplar"""
         return prices.ewm(span=period, adjust=False).mean()
     
     def calculate_sma(self, prices, period):
-        """Calculate Simple Moving Average"""
+        """Basit Hareketli Ortalama (SMA) hesaplar"""
         return prices.rolling(window=period).mean()
     
     def calculate_average_volume(self, volume, period=20):
-        """Calculate average volume"""
+        """Ortalama hacmi hesaplar"""
         return volume.rolling(window=period).mean()
     
     def detect_trend(self, df):
         """
-        Detect trend direction using EMAs
+        EMA'ları kullanarak trend yönünü tespit eder
         
-        Args:
-            df: DataFrame with OHLCV data
+        Argümanlar:
+            df: OHLCV verisini içeren DataFrame
             
-        Returns:
-            "BULLISH", "BEARISH", or "NEUTRAL"
+        Döner:
+            "BULLISH" (Yükseliş), "BEARISH" (Düşüş) veya "NEUTRAL" (Nötr)
         """
         ema_20 = self.calculate_ema(df['close'], 20)
         ema_50 = self.calculate_ema(df['close'], 50)
@@ -98,11 +98,11 @@ class TechnicalFilter:
         ema50_val = ema_50.iloc[-1]
         ema200_val = ema_200.iloc[-1]
         
-        # Strong bullish: price > EMA20 > EMA50 > EMA200
+        # Güçlü yükseliş: fiyat > EMA20 > EMA50 > EMA200
         if current_price > ema20_val > ema50_val > ema200_val:
             return "BULLISH"
         
-        # Strong bearish: price < EMA20 < EMA50 < EMA200
+        # Güçlü düşüş: fiyat < EMA20 < EMA50 < EMA200
         if current_price < ema20_val < ema50_val < ema200_val:
             return "BEARISH"
         
@@ -110,10 +110,10 @@ class TechnicalFilter:
     
     def check_rsi_signal(self, rsi_value):
         """
-        Check RSI for buy/sell signals
+        Alım/satım sinyalleri için RSI'yı kontrol eder
         
-        Returns:
-            Dict with signal and score
+        Döner:
+            Sinyal ve skor içeren sözlük
         """
         if rsi_value < config.RSI_OVERSOLD:
             return {"signal": "BUY", "score": 30, "reason": f"RSI aşırı satım bölgesinde ({rsi_value:.1f})"}
@@ -124,27 +124,27 @@ class TechnicalFilter:
     
     def check_macd_signal(self, macd_data):
         """
-        Check MACD for crossover signals
+        Kesişme sinyalleri için MACD'yi kontrol eder
         
-        Returns:
-            Dict with signal and score
+        Döner:
+            Sinyal ve skor içeren sözlük
         """
-        # Get last 2 values to detect crossover
+        # Kesişmeyi tespit etmek için son 2 değeri al
         macd_current = macd_data["macd"].iloc[-1]
         macd_prev = macd_data["macd"].iloc[-2]
         signal_current = macd_data["signal"].iloc[-1]
         signal_prev = macd_data["signal"].iloc[-2]
         histogram_current = macd_data["histogram"].iloc[-1]
         
-        # Bullish crossover: MACD crosses above signal
+        # Yükseliş kesişmesi: MACD sinyal hattının üzerine çıkar
         if macd_prev < signal_prev and macd_current > signal_current:
             return {"signal": "BUY", "score": 25, "reason": "MACD yükseliş kesisi"}
         
-        # Bearish crossover: MACD crosses below signal
+        # Düşüş kesişmesi: MACD sinyal hattının altına iner
         if macd_prev > signal_prev and macd_current < signal_current:
             return {"signal": "SELL", "score": 25, "reason": "MACD düşüş kesisi"}
         
-        # Check histogram momentum
+        # Histogram momentumunu kontrol et
         if histogram_current > 0:
             return {"signal": "BUY", "score": 10, "reason": "MACD histogram pozitif"}
         elif histogram_current < 0:
@@ -154,26 +154,26 @@ class TechnicalFilter:
     
     def check_trend_alignment(self, trend_h1, trend_h4, trend_d1):
         """
-        Check if multiple timeframes agree on trend
+        Birden fazla zaman diliminin trend konusunda hemfikir olup olmadığını kontrol eder
         
-        Returns:
-            Dict with signal and score
+        Döner:
+            Sinyal ve skor içeren sözlük
         """
         trends = [trend_h1, trend_h4, trend_d1]
         
-        # All timeframes bullish
+        # Tüm zaman dilimleri yükseliş eğiliminde
         if all(t == "BULLISH" for t in trends):
             return {"signal": "BUY", "score": 30, "reason": "Tüm zaman dilimleri yükseliş eğiliminde"}
         
-        # All timeframes bearish
+        # Tüm zaman dilimleri düşüş eğiliminde
         if all(t == "BEARISH" for t in trends):
             return {"signal": "SELL", "score": 30, "reason": "Tüm zaman dilimleri düşüş eğiliminde"}
         
-        # Majority bullish
+        # Çoğunluk yükseliş eğiliminde
         if trends.count("BULLISH") >= 2:
             return {"signal": "BUY", "score": 15, "reason": "Zaman dilimlerinin çoğu yükseliş eğiliminde"}
         
-        # Majority bearish
+        # Çoğunluk düşüş eğiliminde
         if trends.count("BEARISH") >= 2:
             return {"signal": "SELL", "score": 15, "reason": "Zaman dilimlerinin çoğu düşüş eğiliminde"}
         
@@ -181,10 +181,10 @@ class TechnicalFilter:
     
     def check_volume_confirmation(self, df):
         """
-        Check if current volume confirms the signal
+        Mevcut hacmin sinyali doğrulayıp doğrulamadığını kontrol eder
         
-        Returns:
-            Dict with score and reason
+        Döner:
+            Skor ve neden içeren sözlük
         """
         current_volume = df['tick_volume'].iloc[-1]
         avg_volume = self.calculate_average_volume(df['tick_volume'], 20).iloc[-1]
@@ -196,23 +196,23 @@ class TechnicalFilter:
     
     def analyze(self, market_data):
         """
-        Main analysis function - combines all technical indicators
+        Ana analiz fonksiyonu - tüm teknik göstergeleri birleştirir
         
-        Args:
-            market_data: Dict with multi-timeframe data from DataFetcher
+        Argümanlar:
+            market_data: DataFetcher'dan gelen çoklu zaman dilimi verilerini içeren sözlük
             
-        Returns:
-            Dict with pass/fail, score, direction, and detailed signals
+        Döner:
+            Geçti/kaldı durumu, skor, yön ve detaylı sinyalleri içeren sözlük
         """
-        symbol = market_data.get("symbol", "UNKNOWN")
+        symbol = market_data.get("symbol", "BİLİNMİYOR")
         
         try:
-            # Get data for each timeframe
+            # Her zaman dilimi için veriyi al
             df_h1 = market_data.get("H1")
             df_h4 = market_data.get("H4")
             df_d1 = market_data.get("D1")
             
-            # H1 is mandatory
+            # H1 zorunludur
             if df_h1 is None:
                 return {
                     "pass": False,
@@ -222,28 +222,28 @@ class TechnicalFilter:
                 }
             
             # ========================================
-            # CALCULATE INDICATORS
+            # GÖSTERGELERİ HESAPLA
             # ========================================
             
-            # RSI (using H1 timeframe)
+            # RSI (H1 zaman dilimini kullanarak)
             rsi = self.calculate_rsi(df_h1['close'])
             rsi_current = rsi.iloc[-1]
             
-            # MACD (using H1 timeframe)
+            # MACD (H1 zaman dilimini kullanarak)
             macd = self.calculate_macd(df_h1['close'])
             
-            # Trend detection
+            # Trend tespiti
             trend_h1 = self.detect_trend(df_h1)
             
-            # Optional timeframes (handle if missing)
+            # Opsiyonel zaman dilimleri (eksikse H1'e göre davran)
             trend_h4 = self.detect_trend(df_h4) if df_h4 is not None else trend_h1
             trend_d1 = self.detect_trend(df_d1) if df_d1 is not None else trend_h1
             
-            # Volume confirmation (H1)
+            # Hacim doğrulaması (H1)
             volume_check = self.check_volume_confirmation(df_h1)
             
             # ========================================
-            # GENERATE SIGNALS
+            # SİNYALLERİ ÜRET
             # ========================================
             
             rsi_signal = self.check_rsi_signal(rsi_current)
@@ -251,14 +251,14 @@ class TechnicalFilter:
             trend_signal = self.check_trend_alignment(trend_h1, trend_h4, trend_d1)
             
             # ========================================
-            # CALCULATE TOTAL SCORE
+            # TOPLAM SKORU HESAPLA
             # ========================================
             
             total_score = 0
             buy_score = 0
             sell_score = 0
             
-            # Aggregate scores by direction
+            # Skorları yöne göre topla
             if rsi_signal["signal"] == "BUY":
                 buy_score += rsi_signal["score"]
             elif rsi_signal["signal"] == "SELL":
@@ -274,7 +274,7 @@ class TechnicalFilter:
             elif trend_signal["signal"] == "SELL":
                 sell_score += trend_signal["score"]
             
-            # Add volume bonus to stronger direction
+            # Güçlü yöne hacim bonusu ekle
             if buy_score > sell_score:
                 buy_score += volume_check["score"]
                 total_score = buy_score
@@ -288,7 +288,7 @@ class TechnicalFilter:
                 direction = "NEUTRAL"
             
             # ========================================
-            # DECISION LOGIC
+            # KARAR MANTIĞI
             # ========================================
             
             passed = total_score >= config.TECHNICAL_MIN_SCORE
@@ -312,7 +312,7 @@ class TechnicalFilter:
                 "reason": f"{direction} sinyali, {total_score}/100 puan" if passed else f"Puan {total_score}, eşik değerin {config.TECHNICAL_MIN_SCORE} altında"
             }
             
-            # Log the decision
+            # Kararı günlükle
             log_trade_decision(logger, symbol, 1, result)
             
             return result

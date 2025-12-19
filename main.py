@@ -1,10 +1,14 @@
 """
-Sniper Trading Bot - Main Loop
-Three-Tier Filtering System: Technical -> News -> RAG+LLM
-Optimized for RTX 3050 4GB VRAM
+Sniper Trading Bot - Ana Döngü
+Üç Kademeli Filtreleme Sistemi: Teknik -> Haber -> RAG+LLM
+RTX 3050 4GB VRAM için optimize edilmiştir
 """
 
 import time
+import os
+import webbrowser
+import threading
+import subprocess
 from datetime import datetime
 import config
 from core.broker_yfinance import YFinanceBroker
@@ -15,15 +19,17 @@ from filters.stage2_news import NewsFilter
 from filters.stage3_llm import LLMDecisionEngine
 from utils.logger import setup_logger
 from utils.economic_calendar import EconomicCalendar
+from utils.formatter import UIFormatter
 
 # ========================================
-# INITIALIZATION
+# BAŞLATMA
 # ========================================
 
 logger = setup_logger("SniperBot")
+ui = UIFormatter()
 
 def select_mode():
-    """Interactive mode selection"""
+    """Etkileşimli mod seçimi"""
     print("\n" + "=" * 60)
     print("🎯 SNIPER TRADING BOT")
     print("=" * 60)
@@ -38,7 +44,7 @@ def select_mode():
     
     print("\n3. Yapay Zeka (LLM) Seçin:")
     print("  [G] Gemini API (Bulut - Hızlı)")
-    print("  [O] Ollama (Yerel - Mistral)")
+    print(f"  [O] Ollama (Yerel - {config.LLM_MODEL})")
     print("=" * 60)
     
     # 1. Veri kaynağı seçimi
@@ -62,19 +68,20 @@ def select_mode():
             break
         print("❌ Lütfen G veya O girin!")
     
-    # Config'i güncelle
+    # Yapılandırmayı güncelle
     config.DEMO_MODE = (veri == 'D')
-    config.DRY_RUN = True # YFinance ile işlem yapılamaz, daima True (Sanal)
+    config.DRY_RUN = True # YFinance ile gerçek işlem yapılamaz, daima True (Sanal)
     config.USE_GEMINI_API = (llm_choice == 'G')
     
-    # Eğer Ollama seçildiyse Mistral kullandığından emin olalım
+    # Eğer Ollama seçildiyse Config'deki modeli kullanalım
     if not config.USE_GEMINI_API:
-        config.LLM_MODEL = "mistral:latest"
+        # config.LLM_MODEL zaten config.py'de tanımlı, burada dokunmuyoruz ki kullanıcı ne yazdıysa o gelsin
+        pass
     
     print("\n" + "=" * 60)
     print(f"✅ Veri: {'📊 Canlı (YFinance)' if veri == 'C' else '🎲 Simüle'}")
     print(f"✅ Mod: {'📋 Test/Sanal' if islem == 'T' else 'ℹ️ Sinyal Modu'}")
-    print(f"✅ AI Backend: {'☁️ Gemini' if config.USE_GEMINI_API else '🏠 Ollama (Mistral)'}")
+    print(f"✅ AI Backend: {'☁️ Gemini' if config.USE_GEMINI_API else f'🏠 Ollama ({config.LLM_MODEL})'}")
     print("=" * 60)
     
     if islem == 'S':
@@ -90,58 +97,20 @@ def select_mode():
     print("\n")
 
 def initialize_system():
-    """Initialize all components"""
+    """Tüm bileşenleri başlatır"""
     logger.info("=" * 60)
     logger.info("🎯 SNIPER TRADING BOT - SİSTEM BAŞLATILIYOR")
     logger.info("=" * 60)
     logger.info(f"Başlangıç Zamanı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Mod: {'📋 TEST MODU (Sadece Öneriler)' if config.DRY_RUN else '💰 CANLI İŞLEM'}")
-    logger.info(f"LLM Model: {config.GEMINI_MODEL if config.USE_GEMINI_API else config.LLM_MODEL} {'(CLOUD)' if config.USE_GEMINI_API else '(LOCAL)'}")
+    logger.info(f"LLM Model: {config.GEMINI_MODEL if config.USE_GEMINI_API else config.LLM_MODEL} {'(BULUT)' if config.USE_GEMINI_API else '(YEREL)'}")
     logger.info(f"İzlenen Varlıklar: {len(config.SYMBOLS)} adet")
     logger.info(f"Kontrol Aralığı: {config.CHECK_INTERVAL}s ({config.CHECK_INTERVAL/60:.1f} dakika)")
     logger.info(f"Min Güven: %{config.MIN_CONFIDENCE}")
     logger.info(f"Min Risk/Ödül: {config.MIN_RISK_REWARD_RATIO}:1")
     logger.info("=" * 60)
-    logger.info("")
-    logger.info("📊 SKORLARIN ANLAMI - REHBERİNİZ:")
-    logger.info("=" * 60)
-    logger.info("")
-    logger.info("🔹 TEKNİK SKOR (1. Aşama Filtresi):")
-    logger.info("   • 0-100 arası değer alır")
-    logger.info("   • RSI, MACD, Trend Analizi ve Hacim sinyallerinden oluşur")
-    logger.info("   • RSI Sinyali: Max 30 puan (aşırı alım/satım bölgelerinde)")
-    logger.info("   • MACD Sinyali: Max 25 puan (çapraz geçişlerde)")
-    logger.info("   • Trend Uyumu: Max 30 puan (tüm zaman dilimleri aynı yönde)")
-    logger.info("   • Hacim Doğrulaması: Max 15 puan (ortalamanın 1.5x üstünde)")
-    logger.info(f"   • Geçiş Eşiği: {config.TECHNICAL_MIN_SCORE} puan")
-    logger.info("   → Örnek: 75/100 = Çok güçlü teknik sinyal")
-    logger.info("")
-    logger.info("🔹 DUYGU SKORU (2. Aşama Filtresi):")
-    logger.info("   • -100 ile +100 arası değer alır")
-    logger.info("   • Haberlerin ortalama duygu analizi skorudur")
-    logger.info("   • -100: Tamamen düşüş beklentisi (bearish)")
-    logger.info("   • 0: Nötr (karışık haberler)")
-    logger.info("   • +100: Tamamen yükseliş beklentisi (bullish)")
-    logger.info("   • ALIM için: +50 veya üstü ideal")
-    logger.info("   • SATIM için: -50 veya altı ideal")
-    logger.info("   → Örnek: +70 = Güçlü pozitif haber akışı, ALIM desteklenir")
-    logger.info("")
-    logger.info("🔹 GÜVEN SEVİYESİ (3. Aşama - LLM Kararı):")
-    logger.info("   • 0-100 arası değer alır")
-    logger.info("   • Yapay zekanın işleme olan güven derecesi")
-    logger.info(f"   • Minimum %{config.MIN_CONFIDENCE} gerekir (işlem yapılması için)")
-    logger.info("   • 90-100: Çok yüksek güven (mükemmel setup)")
-    logger.info("   • 80-89: Yüksek güven (iyi setup)")
-    logger.info("   • 70-79: Orta güven (kabul edilebilir)")
-    logger.info("   • 70 altı: Düşük güven (işlem yapılmaz)")
-    logger.info("   → Örnek: %95 = Tüm sinyaller mükemmel uyumlu, yüksek başarı beklentisi")
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info("💡 İPUCU: İyi bir işlem için her üç skorun da yüksek olması önemlidir!")
-    logger.info("=" * 60)
     
-    # Initialize core components
-    # broker = MT5Broker()
+    # Çekirdek bileşenleri başlat
     broker = YFinanceBroker()
     if not broker.initialized:
         logger.error("❌ Broker başlatılamadı")
@@ -150,15 +119,16 @@ def initialize_system():
     data_fetcher = DataFetcher(broker)
     risk_manager = RiskManager(broker)
     
-    # Stage 1 & 2 (No GPU)
+    # 1. ve 2. Aşama (GPU Gerektirmez)
     technical_filter = TechnicalFilter()
     news_filter = NewsFilter()
+    news_db = news_filter.db # Haber veritabanına doğrudan erişim
     
-    # Economic Calendar (for future events)
+    # Ekonomik Takvim (gelecek olaylar için)
     economic_calendar = EconomicCalendar()
     
-    # Stage 3 (Lazy loading - only when needed)
-    llm_engine = None  # Will initialize on first need
+    # 3. Aşama (Lazy loading - sadece ihtiyaç duyulduğunda yüklenir)
+    llm_engine = None  # İlk ihtiyaçta başlatılacaktır
     
     logger.info("✅ Sistem başarıyla başlatıldı")
     logger.info("")
@@ -169,27 +139,18 @@ def initialize_system():
         "risk_manager": risk_manager,
         "technical_filter": technical_filter,
         "news_filter": news_filter,
+        "news_db": news_db, # Haber veritabanı erişimi
         "economic_calendar": economic_calendar,
         "llm_engine": llm_engine
     }
 
-
 def process_symbol(symbol, components):
     """
-    Process a single symbol through the three-tier filter
-    
-    Args:
-        symbol: Trading symbol
-        components: Dict of initialized components
-        
-    Returns:
-        True if trade executed, False otherwise
+    Tek bir sembolü üç kademeli filtreden geçirir
     """
-    logger.info(f"\n{'#'*60}")
-    logger.info(f"🚀 ANALYZING ASSET: {symbol}")
-    logger.info(f"{'#'*60}")
+    ui.print_market_header(symbol)
     
-    # Unpack components
+    # Bileşenleri çıkart
     data_fetcher = components["data_fetcher"]
     technical_filter = components["technical_filter"]
     news_filter = components["news_filter"]
@@ -197,25 +158,14 @@ def process_symbol(symbol, components):
     risk_manager = components["risk_manager"]
     broker = components["broker"]
     
-    # ========================================
-    # PRE-STAGE: ECONOMIC CALENDAR CHECK
-    # ========================================
+    # LLM için gelecek olayları hazırla
     upcoming_events = economic_calendar.get_upcoming_events(symbol=symbol)
-    if upcoming_events:
-        logger.info(f"📅 BEKLENEN ÖNEMLİ HABERLER ({len(upcoming_events)} adet):")
-        for event in upcoming_events:
-            etki = event.get('impact', 'MEDIUM').replace('HIGH', '🔴 YÜKSEK').replace('MEDIUM', '🟡 ORTA').replace('LOW', '🟢 DÜŞÜK')
-            logger.info(f"  • {event.get('date')} | {event.get('title')} | Etki: {etki}")
-        logger.info(f"{'-'*40}")
-    else:
-        logger.info("📅 Yakın zamanda önemli ekonomik haber bulunamadı.")
-        logger.info(f"{'-'*40}")
 
     # ========================================
-    # STAGE 1: TECHNICAL HARD FILTER
+    # 1. AŞAMA: TEKNİK SERT FİLTRE
     # ========================================
-    # Goal: Eliminate 90%+ of trades immediately
-    # No GPU usage, fast execution (< 0.1 seconds)
+    # Hedef: İşlemlerin %90'ından fazlasını anında elemek
+    # Hızlı çalışma (< 0.1 saniye), GPU kullanmaz
     
     market_data = data_fetcher.get_multi_timeframe_data(
         symbol=symbol,
@@ -235,17 +185,13 @@ def process_symbol(symbol, components):
         logger.info(f"❌ {symbol} - 1. Aşama BAŞARISIZ (Teknik Filtre): {stage1_result['reason']}")
         return False
     
-    # Translate direction
-    yon_tr = stage1_result['direction'].replace("BUY", "AL").replace("SELL", "SAT").replace("NEUTRAL", "NÖTR")
-    
-    logger.info(f"✅ {symbol} - 1. Aşama GEÇİLDİ (Puan: {stage1_result['score']}/100, Yön: {yon_tr})")
-    
+    ui.print_stage_result(1, stage1_result, symbol)
     
     # ========================================
-    # STAGE 2: NEWS SENTIMENT FILTER
+    # 2. AŞAMA: HABER DUYGU FİLTRESİ
     # ========================================
-    # Goal: Validate trade direction with fundamentals
-    # SQL query only, still no GPU (< 0.5 seconds)
+    # Hedef: İşlem yönünü temel verilerle doğrulamak
+    # Sadece SQL sorgusu (< 0.5 saniye), GPU kullanmaz
     
     trade_direction = stage1_result["direction"]
     
@@ -255,22 +201,16 @@ def process_symbol(symbol, components):
         hours_lookback=config.NEWS_LOOKBACK_HOURS
     )
     
-    if not stage2_result["pass"]:
-        logger.info(f"❌ {symbol} - 2. Aşama BAŞARISIZ (Haber Filtresi): {stage2_result['reason']}")
-        return False
-    
-    logger.info(f"✅ {symbol} - 2. Aşama GEÇİLDİ (Duygu Skoru: {stage2_result['sentiment_score']:.1f})")
-    
+    ui.print_stage_result(2, stage2_result, symbol)
     
     # ========================================
-    # STAGE 3: LLM DECISION (SNIPER MODE)
+    # 3. AŞAMA: LLM KARARI (SNIPER MODU)
     # ========================================
-    # Goal: Final validation with strategy knowledge
-    # NOW we load the LLM (2-5 seconds, GPU required)
+    # Hedef: Strateji bilgisiyle son doğrulama
+    # ŞİMDİ LLM'i yüklüyoruz (2-5 saniye, GPU gerekir)
     
-    # Lazy load LLM (saves VRAM and startup time)
     if components["llm_engine"] is None:
-        logger.info("🔧 Loading LLM Decision Engine for first time...")
+        logger.info("🔧 LLM Karar Motoru ilk kez yükleniyor...")
         components["llm_engine"] = LLMDecisionEngine(
             model_name=config.LLM_MODEL,
             rag_data_path=config.RAG_DATA_PATH
@@ -278,9 +218,7 @@ def process_symbol(symbol, components):
     
     llm_engine = components["llm_engine"]
     
-    # Prepare context for LLM (upcoming_events already fetched at start)
-    
-    # Prepare context for LLM
+    # LLM için bağlam hazırla
     context = {
         "symbol": symbol,
         "technical_signals": stage1_result["signals"],
@@ -292,7 +230,7 @@ def process_symbol(symbol, components):
         "direction": trade_direction
     }
     
-    # Ask LLM: "Should I take this trade?"
+    # LLM'e Sor: "Bu işlemi yapmalı mıyım?"
     stage3_result = llm_engine.make_decision(context)
     
     if stage3_result["decision"] == "PASS":
@@ -303,26 +241,30 @@ def process_symbol(symbol, components):
         logger.info(f"❌ {symbol} - Düşük güven seviyesi ({stage3_result['confidence']}% < {config.MIN_CONFIDENCE}%)")
         return False
     
-    logger.info("=" * 60)
-    logger.info(f"🎯 SNIPER MODU AKTİF - {symbol}")
-    logger.info(f"   Karar: {stage3_result['decision']}")
-    logger.info(f"   Güven: {stage3_result['confidence']}%")
-    logger.info(f"   Mantık: {stage3_result['reasoning']}")
-    logger.info("=" * 60)
-    
+    # UI için sonucu hazırla
+    signal_info = {
+        "decision": stage3_result["decision"],
+        "confidence": stage3_result["confidence"],
+        "reasoning": stage3_result["reasoning"],
+        "entry_price": float(market_data["current_price"]),
+        "stop_loss": stage3_result["stop_loss"],
+        "take_profit": stage3_result["take_profit"],
+        "timeframe": stage3_result.get("timeframe", "H1"),
+        "expected_duration": stage3_result.get("expected_duration", "Bilinmiyor"),
+        "rr_ratio": 0 # Doğrulamadan sonra güncellenecek
+    }
     
     # ========================================
-    # RISK MANAGEMENT & VALIDATION
+    # RİSK YÖNETİMİ & DOĞRULAMA
     # ========================================
     
-    # Check position limits
+    # Pozisyon limitlerini kontrol et
     position_check = risk_manager.check_position_limits()
     if not position_check["allowed"]:
         logger.warning(f"⚠️ {symbol} - {position_check['reason']}")
         return False
     
-    # Validate risk/reward ratio (with auto-fallback for missing SL/TP)
-    # If entry_price is missing (0.0), use current price
+    # Risk/ödül oranını doğrula
     llm_entry = float(stage3_result.get("entry_price", 0))
     entry_to_use = llm_entry if llm_entry > 0 else float(market_data["current_price"])
     
@@ -330,19 +272,24 @@ def process_symbol(symbol, components):
         entry_price=entry_to_use,
         stop_loss=stage3_result["stop_loss"],
         take_profit=stage3_result["take_profit"],
+        symbol=symbol,
         decision=stage3_result["decision"]
     )
     
     if not trade_validation["valid"]:
-        logger.warning(f"❌ {symbol} - {trade_validation['reason']}")
+        logger.warning(f"⚠️ {symbol} - {trade_validation['reason']} -> ⏸️ BEKLEMEDE KAL (Risk/Ödül Uygun Değil)")
+        # Sinyali dashboard'a "BEKLE" olarak gönder
+        signal_info["decision"] = "BEKLE (Düşük R:R)"
+        signal_info["reasoning"] = f"Teknik olarak uygun ancak Risk/Ödül oranı ({trade_validation['rr_ratio']}) düşük. " + signal_info.get("reasoning", "")
+        ui.save_result_for_web(symbol, signal_info)
         return False
     
-    # Update prices with potential fallbacks from risk_manager
+    # Fiyatları risk_manager'dan gelen (veya düzeltilen) değerlerle güncelle
     sl = float(trade_validation["sl"])
     tp = float(trade_validation["tp"])
     entry = entry_to_use
     
-    # Calculate position size
+    # Pozisyon büyüklüğünü hesapla
     position_size = risk_manager.calculate_position_size(
         symbol=symbol,
         entry_price=entry,
@@ -350,18 +297,21 @@ def process_symbol(symbol, components):
         risk_percent=config.RISK_PERCENT
     )
     
-    
     # ========================================
-    # EXECUTE TRADE (OR SHOW RECOMMENDATION)
+    # İŞLEMİ UYGULA (VEYA ÖNERİYİ GÖSTER)
     # ========================================
     
-    # Calculate pip difference for TP and SL
+    # SL ve TP için pip mesafesini hesapla
     try:
-        # Determine pip multiplier (forex vs stocks/indices)
+        # Pip çarpanını belirle
         if "=X" in symbol:  # Forex
             pip_multiplier = 10000 if "JPY" not in symbol else 100
+        elif "GC=F" in symbol or "XAU" in symbol:  # Altın
+            pip_multiplier = 10  # 0.1 birim = 1 pip
+        elif "SI=F" in symbol or "XAG" in symbol:  # Gümüş
+            pip_multiplier = 100 # 0.01 birim = 1 pip
         else:
-            pip_multiplier = 1  # For indices, stocks, crypto
+            pip_multiplier = 1  # Endeksler, hisseler, kripto için
         
         sl_distance = abs(entry - sl) * pip_multiplier
         tp_distance = abs(tp - entry) * pip_multiplier
@@ -370,47 +320,55 @@ def process_symbol(symbol, components):
         sl_distance = 0
         tp_distance = 0
     
-    logger.info("=" * 60)
-    logger.info("🎯 TİCARET SİNYALİ")
-    logger.info("=" * 60)
-    logger.info(f"📊 Varlık: {symbol}")
-    logger.info(f"")
-    logger.info(f"📍 Yön: {stage3_result['decision'].replace('BUY', '🟢 ALIM (AL)').replace('SELL', '🔴 SATIM (SAT)')}")
-    logger.info(f"💰 Giriş Fiyatı: {entry:.5f}")
-    logger.info(f"🛑 Zarar Kes (SL): {sl:.5f} ({sl_distance:.1f} pip uzakta)")
-    logger.info(f"🎯 Kar Al (TP): {tp:.5f} ({tp_distance:.1f} pip uzakta)")
-    logger.info(f"")
-    logger.info(f"📦 Pozisyon Büyüklüğü: {position_size} lot")
-    logger.info(f"⚖️ Risk/Ödül Oranı: {trade_validation['rr_ratio']:.2f}:1")
-    logger.info(f"✅ Güven Seviyesi: %{stage3_result['confidence']}")
-    logger.info(f"⚠️ Risk Skoru: {stage3_result.get('risk_score', 'N/A')}/100")
-    logger.info(f"⏳ Beklenen Süre: {stage3_result.get('expected_duration', 'Belirtilmedi')}")
-    logger.info(f"")
-    logger.info(f"💡 NEDEN: {stage3_result['reasoning']}")
-    logger.info("=" * 60)
+    # Final UI Çıktısı & Kaydet
+    signal_info["rr_ratio"] = trade_validation['rr_ratio']
+    signal_info["entry_price"] = entry
+    signal_info["stop_loss"] = sl
+    signal_info["take_profit"] = tp
     
-    # Check if dry run mode
+    ui.print_trade_signal(symbol, signal_info)
+
+    # ========================================
+    # ÖĞRENME SİSTEMİ: İşlemi Günlüğe Kaydet
+    # ========================================
+    if "llm_engine" in components and components["llm_engine"] is not None:
+        try:
+            # Context'i hazırla (Stage 1 & 2 verileri)
+            learning_context = {
+                "technical_score": stage1_result.get("score", 0),
+                "news_sentiment": stage2_result.get("sentiment_score", 0),
+                "technical_signals": stage1_result.get("signals", {})
+            }
+            # Kararı kaydet
+            components["llm_engine"].learning_system.log_trade_decision(
+                symbol=symbol,
+                direction=stage3_result["decision"],
+                context=learning_context,
+                llm_decision=stage3_result,
+                dry_run=config.DRY_RUN
+            )
+        except Exception as e:
+            logger.error(f"⚠️ Öğrenme sistemi kayıt hatası: {e}")
+
+    # Test modu kontrolü
     if config.DRY_RUN:
-        logger.info("📋 TEST MODU - İşlem uygulanmadı (sadece öneri)")
-        logger.info("   Gerçek işlem için config.py'de DRY_RUN = False yapın")
-        logger.info("=" * 60)
-        return True  # Return True to indicate recommendation was generated
+        return True
     
-    # Execute real trade
+    # Gerçek işlemi gerçekleştir
     logger.info("💰 Gerçek işlem uygulanıyor...")
     
     order = broker.place_order(
         symbol=symbol,
         action=stage3_result["decision"],
         volume=position_size,
-        entry=None,  # Market order
+        entry=None,  # Market emri
         sl=sl,
         tp=tp,
         comment=f"Sniper-{stage3_result['confidence']}%"
     )
     
     if order["success"]:
-        logger.info(f"✅ EMİR UYGULANDIR: Ticket #{order['ticket']}")
+        logger.info(f"✅ EMİR UYGULANDI: Ticket #{order['ticket']}")
         logger.info(f"   Fiyat: {order['price']}")
         logger.info(f"   Hacim: {order['volume']} lot")
         logger.info("=" * 60)
@@ -420,63 +378,155 @@ def process_symbol(symbol, components):
         logger.info("=" * 60)
         return False
 
-
 from update_news import update_news
 
+def run_dashboard_server():
+    """Dashboard sunucusunu arka planda çalıştırır"""
+    subprocess.run(["python", "run_dashboard.py"])
+
 def main():
-    """Main trading loop"""
-    # Mode selection
+    """Ana işlem döngüsü"""
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--auto":
-        # Auto-configure for Test Mode + Yahoo Finance
+        # Otomatik başlatma: Test Modu + Yahoo Finance
         config.DEMO_MODE = False
         config.DRY_RUN = True
         logger.info("🤖 Otomatik Başlatma: Yahoo Finance + Test Modu")
     else:
         select_mode()
     
-    # Initialize system
+    # Dashboard'u arka planda başlat
+    logger.info("🌐 Dashboard başlatılıyor...")
+    threading.Thread(target=run_dashboard_server, daemon=True).start()
+    time.sleep(2) # Sunucunun kalkması için kısa bir süre bekle
+    webbrowser.open("http://localhost:8000/dashboard.html")
+
+    # Sistemi başlat
     components = initialize_system()
     
     if components is None:
         logger.error("❌ Sistem başlatma başarısız")
         return
     
-    # Main loop
+    # Ana döngü
     try:
+        # Veri dizininin var olduğundan emin ol
+        os.makedirs("data", exist_ok=True)
+        logger.info("📁 Veri dizini kontrol edildi.")
+
+        last_news_update = 0
+        NEWS_UPDATE_INTERVAL = 24 * 60 * 60 # 24 saat (saniye)
+
         while True:
             loop_start = time.time()
             
             logger.info("")
             logger.info(f"⏰ Tarama başlatıldı: {datetime.now().strftime('%H:%M:%S')}")
             
-            # Update News from External APIs
-            try:
-                logger.info("🌍 Dış kaynaktan (API) haberler güncelleniyor...")
-                update_news()
-            except Exception as e:
-                logger.error(f"⚠️ Haber güncelleme hatası: {str(e)}")
+            # Haberleri API'den güncelle (Sadece 24 saatte bir)
+            if time.time() - last_news_update > NEWS_UPDATE_INTERVAL:
+                try:
+                    logger.info("🌍 Dış kaynaktan (API) haberler güncelleniyor (24 saatlik rutin)...")
+                    update_news()
+                    last_news_update = time.time()
+                except Exception as e:
+                    logger.error(f"⚠️ Haber güncelleme hatası: {str(e)}")
+            else:
+                next_update = (last_news_update + NEWS_UPDATE_INTERVAL) - time.time()
+                logger.debug(f"ℹ️ Haberler güncel. Bir sonraki derin tarama {next_update/3600:.1f} saat sonra.")
 
-            # Process each symbol
+            # --- SİSTEM ÖĞRENİMİ: BEKLEYEN İŞLEMLERİ DENETLE ---
+            if "llm_engine" in components and components["llm_engine"] is not None:
+                try:
+                    pending_trades = components["llm_engine"].learning_system.get_pending_trades()
+                    if pending_trades:
+                        logger.info(f"🔍 {len(pending_trades)} adet bekleyen işlem denetleniyor...")
+                        for trade in pending_trades:
+                            # Güncel fiyatı al (YFinance)
+                            ticker = data_fetcher.broker.get_ticker(trade["symbol"])
+                            if ticker is None: continue
+                            
+                            price = ticker.info.get("regularMarketPrice")
+                            if price is None: continue
+                            
+                            # TP/SL Kontrolü
+                            outcome = None
+                            if trade["direction"] == "BUY":
+                                if price >= trade["take_profit"]: outcome = "WIN"
+                                elif price <= trade["stop_loss"]: outcome = "LOSS"
+                            else: # SELL
+                                if price <= trade["take_profit"]: outcome = "WIN"
+                                elif price >= trade["stop_loss"]: outcome = "LOSS"
+                            
+                            if outcome:
+                                profit_pips = abs(price - trade["entry_price"]) * (10000 if "JPY" not in trade["symbol"] else 100)
+                                components["llm_engine"].learning_system.update_trade_outcome(
+                                    trade_id=trade["id"],
+                                    outcome=outcome,
+                                    profit_pips=profit_pips,
+                                    close_price=price
+                                )
+                                # Pattern analizini tetikle
+                                components["llm_engine"].learning_system.analyze_patterns(min_samples=1) # Test için düşük eşik
+                except Exception as e:
+                    logger.error(f"⚠️ Bekleyen işlem denetleme hatası: {e}")
+
+            # --- DASHBOARD VERİ HAZIRLAMA (Haberler + Beklenen Olaylar) ---
+            try:
+                combined_news = []
+                
+                # 1. Gelecek Önemli Haberler (Ekonomik Takvim - TÜMÜ)
+                if "economic_calendar" in components:
+                    ec = components["economic_calendar"]
+                    upcoming = ec.get_upcoming_events("ALL", days_ahead=7)
+                    if upcoming:
+                        logger.info(f"📅 BEKLENEN ÖNEMLİ HABERLER ({len(upcoming)} adet):")
+                        for event in upcoming:
+                            etki = event.get('impact', 'MEDIUM').replace('HIGH', '🔴 YÜKSEK').replace('MEDIUM', '🟡 ORTA').replace('LOW', '🟢 DÜŞÜK')
+                            logger.info(f"  • {event.get('date')} | {event.get('title')} | Etki: {etki}")
+                            
+                            combined_news.append({
+                                "title": f"📅 [BEKLENEN] {event.get('title', 'Bilinmiyor')}",
+                                "source": event.get("country", "ECON"),
+                                "published_at": event.get("date"),
+                                "sentiment_score": 0,
+                                "impact_level": event.get("impact", "LOW"),
+                                "symbols": event.get("country", "")
+                            })
+                        logger.info("-" * 40)
+                    else:
+                        logger.info("📅 Yakın zamanda önemli ekonomik haber bulunamadı.")
+                
+                # 2. Geçmiş/Güncel Haberler (Veritabanından)
+                if "news_db" in components:
+                    recent = components["news_db"].get_recent_news(hours_lookback=24)
+                    for n in recent:
+                        combined_news.append(n)
+                
+                # Dashboard için kaydet
+                ui.save_news_for_web(combined_news)
+                
+            except Exception as e:
+                logger.error(f"⚠️ Dashboard haber birleştirme hatası: {str(e)}")
+
+            # Her sembolü işle
             for symbol in config.SYMBOLS:
                 try:
                     process_symbol(symbol, components)
                     
                     import gc
-                    gc.collect()  # Force garbage collection to free VRAM/RAM
+                    gc.collect()  # VRAM/RAM'i boşaltmak için çöp toplayıcıyı çalıştır
                     
-                    # Delay between assets (User Request)
+                    # İşlemler arası gecikme (Kullanıcı talebi)
                     time.sleep(2)
                 except Exception as e:
-                    logger.error(f"❌ Error processing {symbol}: {str(e)}")
+                    logger.error(f"❌ {symbol} işlenirken hata: {str(e)}")
             
-            # Wait before next scan
+            # Sonraki taramadan önce bekle
             loop_duration = time.time() - loop_start
             wait_time = max(0, config.CHECK_INTERVAL - loop_duration)
             
-            logger.info("")
-            logger.info(f"⏳ Sonraki tarama {wait_time:.0f} saniye sonra... (Durdurmak için Ctrl+C)")
-            logger.info("")
+            ui.print_loop_status(wait_time)
             
             time.sleep(wait_time)
     
@@ -486,11 +536,16 @@ def main():
         logger.info("🛑 SNIPER BOT KULLANICI TARAFINDAN DURDURULDU")
         logger.info("=" * 60)
         components["broker"].close()
+        # İşlem sonu dosyayı sil
+        if os.path.exists("data/web_results.json"):
+            os.remove("data/web_results.json")
     
     except Exception as e:
         logger.error(f"❌ Ana döngüde kritik hata: {str(e)}")
         components["broker"].close()
-
+        # İşlem sonu dosyayı sil
+        if os.path.exists("data/web_results.json"):
+            os.remove("data/web_results.json")
 
 if __name__ == "__main__":
     main()

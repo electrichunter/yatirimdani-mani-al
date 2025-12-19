@@ -1,6 +1,6 @@
 """
-System Prompts for LLM Decision Making
-Anti-hallucination focused prompts
+LLM Karar Verme için Sistem Komutları (Prompts) - Self-Learning Odaklı
+Halüsinasyonu önlemeye ve hatalardan ders çıkarmaya odaklanmış komutlar
 """
 
 import json
@@ -8,134 +8,115 @@ import json
 
 def get_system_prompt():
     """
-    Get the main system prompt for trading decisions
-    Updated for AGGRESSIVE but informed trading
+    Ticaret kararları için ana sistem komutunu döndürür.
+    AGRESİF, bilinçli ve 'hatalardan ders çıkaran' bir analist profili.
     """
-    return """Sen profesyonel bir algoritmik ticaret analistisin. Görevin piyasa fırsatlarını yakalamak ve karlı işlemler açmaktır.
+    return """Sen bir finansal analistsin. Verileri analiz et ve SADECE aşağıdaki JSON formatında yanıt ver. 
+Markdown bloğu veya ek açıklama kullanma. <think> bloğunda analizini yap, sonra doğrudan JSON'u yaz.
 
-SİSTEM FELSEFESİ:
-"Fırsatları kaçırma, riskleri yönet." Her varlık (EURUSD, Altın, Gümüş vb.) kendine has davranışlara sahiptir. Analizini bu sembolün özel karakteristiğine ve mevcut ekonomik takvime göre yap.
-
-KRİTİK KURALLAR:
-1. SADECE geçerli JSON formatında yanıt vermelisin (JSON dışında açıklama yok)
-2. Kararını teknik sinyaller, haber duygusu ve risk/ödül dengesine dayandır
-3. Güven %70 üzerindeyse işlem önerisinde bulunabilirsin
-4. Riskli işlemlere (Risk Skoru > 70) izin verilir, ancak nedenini "neden" kısmında açıkla
-5. NEDEN alanını MUTLAKA Türkçe yaz
-
-ÇIKTI FORMATI (geçerli JSON) - BU SIRALAMAYA UYUN:
 {
-  "karar": "AL" | "SAT" | "BEKLE",
-  "guven": 0-100,
-  "giris_fiyati": float,
-  "zarar_kes": float,
-  "kar_al": float,
-  "risk_skoru": 0-100,
-  "risk_odul_orani": float,
-  "beklenen_sure": "Örn: 2 saat",
-  "neden": "Türkçe detaylı açıklama"
+  "karar": "AL/SAT/BEKLE",
+  "guven": 75,
+  "giris_fiyati": 1.1234,
+  "zarar_kes": 1.1200,
+  "kar_al": 1.1300,
+  "risk_skoru": 40,
+  "risk_odul_orani": 2.5,
+  "analiz_vadesi": "H1",
+  "beklenen_sure": "4 saat",
+  "neden": "Analiz açıklaması"
 }"""
  
 
 
-def build_decision_prompt(context, strategy_excerpts, learned_patterns=None):
+def build_decision_prompt(context, strategy_excerpts=None, learned_patterns=None):
     """
-    Build the complete prompt for LLM decision
+    LLM kararı için tam komut metnini oluşturur (RAG çıkarıldı, Öğrenme eklendi).
     
-    Args:
-        context: Dict with technical signals, news, current price
-        strategy_excerpts: List of relevant strategy text chunks from RAG
-        learned_patterns: Dict of learned successful patterns (from previous trades)
+    Argümanlar:
+        context: Teknik sinyaller, haberler ve güncel fiyatı içeren sözlük
+        strategy_excerpts: (Artık kullanılmıyor, uyumluluk için duruyor)
+        learned_patterns: Geçmiş başarılı ve başarısız işlemlerden öğrenilen veriler
         
-    Returns:
-        Formatted prompt string
+    Döner:
+        Formatlanmış komut (prompt) dizesi
     """
-    symbol = context.get("symbol", "UNKNOWN")
-    direction = context.get("direction", "UNKNOWN")
+    symbol = context.get("symbol", "BİLİNMİYOR")
+    direction = context.get("direction", "BİLİNMİYOR")
     current_price = context.get("current_price", 0)
     
-    # Technical signals
+    # Teknik sinyaller
     technical = context.get("technical_signals", {})
     tech_score = context.get("technical_score", 0)
     
-    # News sentiment
+    # Haber duygu analizi
     news_sentiment = context.get("news_sentiment", 0)
     news_list = context.get("relevant_news", [])
     
-    # Economic calendar (upcoming events)
+    # Ekonomik takvim (yaklaşan olaylar)
     upcoming_events = context.get("upcoming_events", [])
     
-    # Direction translation
+    # Yön çevirisi
     direction_tr = direction.replace("BUY", "AL").replace("SELL", "SAT").replace("NEUTRAL", "NÖTR")
-    
-    # Build strategy knowledge section
-    strategy_text = "\n\n".join([
-        f"Strateji Alıntısı {i+1}:\n{excerpt}"
-        for i, excerpt in enumerate(strategy_excerpts[:3])  # Top 3 excerpts
-    ])
     
     prompt = f"""TİCARET FIRSATI DEĞERLENDİRMESİ
 
-SİMGE: {symbol}
-ÖNERİLEN YÖN: {direction_tr}
+VARLIK: {symbol}
+TAVSİYE EDİLEN YÖN: {direction_tr}
 GÜNCEL FİYAT: {current_price}
 
-TEKNİK ANALİZ (1. Aşama Puanı: {tech_score}/100):
-- RSI: {technical.get('rsi', 'N/A')}
-- MACD Sinyali: {technical.get('macd_signal', {}).get('reason', 'N/A')}
-- Trend H1: {technical.get('trend_h1', 'N/A')}
-- Trend H4: {technical.get('trend_h4', 'N/A')}
-- Trend D1: {technical.get('trend_d1', 'N/A')}
-- Hacim: {technical.get('volume', {}).get('reason', 'N/A')}
+📊 TEKNİK VERİLER (Puan: {tech_score}/100):
+- RSI (H1): {technical.get('rsi', 'N/A')}
+- MACD Durumu: {technical.get('macd_signal', {}).get('reason', 'N/A')}
+- Trend Analizi: H1:{technical.get('trend_h1', 'N/A')}, H4:{technical.get('trend_h4', 'N/A')}, D1:{technical.get('trend_d1', 'N/A')}
+- Hacim Onayı: {technical.get('volume', {}).get('reason', 'N/A')}
 
-HABER DUYGUSU (2. Aşama):
-- Ortalama Duygu: {news_sentiment} (-100 düşüş eğilimli / +100 yükseliş eğilimli)
-- Son Haber Sayısı: {len(news_list)}
+📰 HABER VE DUYGU ANALİZİ:
+- Genel Duygu Skoru: {news_sentiment} (-100 Çok Negatif / +100 Çok Pozitif)
+- İlgili Haber Sayısı: {len(news_list)}
 """
     
     if news_list:
-        prompt += "\nÖnemli Haber Başlıkları:\n"
+        prompt += "\nÖnemli Haberler:\n"
         for news in news_list[:3]:
-            prompt += f"- [{news.get('impact', 'N/A')}] {news.get('title', 'Bilinmiyor')} (Duygu: {news.get('sentiment', 0)})\n"
+            prompt += f"- [{news.get('impact', 'N/A')}] {news.get('title', 'Bilinmiyor')} (Sinyal: {news.get('sentiment', 0)})\n"
     
-    # Add upcoming economic events
+    # Yaklaşan olaylar
     if upcoming_events:
-        prompt += f"\n📅 GELECEK EKONOMİK TAKVİM OLAYLARI ({len(upcoming_events)} olay):\n"
-        prompt += "Yaklaşan önemli ekonomik veriler - bu fırsatı değerlendirirken dikkate al:\n\n"
-        for event in upcoming_events[:5]:  # Top 5 upcoming events
-            prompt += f"- {event.get('date', 'TBD')}: {event.get('title', 'N/A')} [{event.get('impact', 'N/A')} Etki]\n"
-            prompt += f"  Ülke: {event.get('country', 'N/A')} | Önceki: {event.get('previous', 'N/A')} | Tahmin: {event.get('forecast', 'N/A')}\n"
-        prompt += "\n⚠️ DİKKAT: Yaklaşan yüksek etkili olaylar önceinde pozisyon risk değerlendirmesini etkiler!\n"
-    
-    prompt += f"\n\nSTRATEJİ BİLGİSİ (ticaret kitaplarından):\n{strategy_text}\n\n"
-    
-    # Add learned patterns (SELF-LEARNING)
-    if learned_patterns and learned_patterns.get("trend_patterns"):
-        prompt += "\n🧠 ÖĞRENİLMİŞ DESENLER (geçmiş başarılı işlemlerden):\n"
-        prompt += "Aşağıdaki desenler tarihsel olarak yüksek kazanç oranı göstermiştir:\n\n"
-        
-        for pattern in learned_patterns.get("trend_patterns", [])[:3]:
-            prompt += f"- Trend Deseni: H1={pattern['h1']}, H4={pattern['h4']}, D1={pattern['d1']}\n"
-            prompt += f"  Kazanma Oranı: %{pattern['win_rate']} ({pattern['sample_size']} işlem)\n"
-            prompt += f"  Ort. Kazanç: {pattern['avg_win']} pip\n\n"
-        
-        if learned_patterns.get("confidence_analysis"):
-            prompt += "\nGüven Seviyesi Analizi:\n"
-            for conf in learned_patterns.get("confidence_analysis", []):
-                prompt += f"- {conf['range']}: %{conf['win_rate']} kazanma oranı ({conf['sample_size']} işlem)\n"
-    
-    prompt += """
-GÖREV: Piyasa verilerini incele ve bir karar ver. 
+        prompt += f"\n📅 YAKLAŞAN EKONOMİK OLAYLAR ({len(upcoming_events)}):\n"
+        for event in upcoming_events[:3]:
+            prompt += f"- {event.get('title', 'N/A')} ({event.get('date', 'TBD')}) [Etki: {event.get('impact', 'N/A')}]\n"
 
-KRİTİK TALİMATLAR:
-1. Risk/Ödül oranı >= 1.5 olmak zorundadır.
-2. Giriş fiyatı, Zarar Kes (SL) ve Kar Al (TP) seviyelerini kesin rakamlarla belirt.
-3. 'neden' alanını çok detaylı doldur. Özellikle:
-   - Neden "AL" veya "SAT" dediğini teknik göstergelerle (RSI, Trend vb.) açıkla.
-   - Yaklaşan haberlerin kararındaki etkisini belirt.
-   - Risk skoru belirleme mantığını anlat.
-   - Bu alan tamamen Türkçe ve profesyonel bir analiz diliyle yazılmalıdır.
-4. Sadece JSON yanıt ver. Boş alan bırakma."""
+    # 🧠 ÖĞRENİLMİŞ DESENLER EKLE (KARAR VERİRKEN EN ÖNEMLİ BÖLÜM)
+    if learned_patterns:
+        prompt += "\n🧠 SİSTEM HAFIZASI (GEÇMİŞ İŞLEMLERDEN ÖĞRENİLENLER):\n"
+        
+        # Başarılı desenler
+        success_patterns = [p for p in learned_patterns if p['win_rate'] >= 60]
+        if success_patterns:
+            prompt += "✅ BAŞARILI KURULUMLAR (Tekrarla):\n"
+            for p in success_patterns[:3]:
+                prompt += f"- {p['data'].get('h1')}/{p['data'].get('h4')} trendi: %{p['win_rate']} başarı\n"
+        
+        # Hatalı/Başarısız desenler (Kullanıcı talebi: Hatalarını görsün)
+        fail_patterns = [p for p in learned_patterns if p['win_rate'] < 50]
+        if fail_patterns:
+            prompt += "\n❌ HATALI KURULUMLAR (Kaçın!):\n"
+            for p in fail_patterns[:3]:
+                prompt += f"- {p['data'].get('h1')}/{p['data'].get('h4')} trend kombinasyonu geçmişte %{100 - p['win_rate']} oranında ZARAR ettirdi.\n"
+        
+        # Güven analizleri
+        if learned_patterns:
+            prompt += "\n⚠️ TALİMAT: Eğer mevcut teknik kurulum 'HATALI KURULUMLAR' listesindeki bir desene benziyorsa, güven seviyesini düşür ve BEKLE kararı ver.\n"
+
+    prompt += """
+GÖREV: Yukarıdaki verileri ve sistem hafızasını birleştirerek nihai kararı ver.
+
+ANALİZ KRİTERLERİ:
+1. Risk/Ödül (RR) oranı mutlaka 1.5 üzerinde olmalıdır. Max RR: 10.0.
+2. Analiz yaptığın vadeyi (H1/H4/Günlük) ve işlemin ne kadar süre açık kalması gerektiğini belirt.
+3. "neden" kısmında hem teknik verileri hem de 'sistem hafızasından' yararak neden AL veya SAT dediğini açıkla.
+4. SADECE JSON formatında yanıt ver. JSON HARİCİ HİÇBİR ŞEY YAZMA. Açıklama ekleme."""
     
     return prompt
 
@@ -143,121 +124,91 @@ KRİTİK TALİMATLAR:
 
 def validate_llm_response(response_text):
     """
-    Validate and parse LLM JSON response
-    Includes auto-closing and regex failsafe for truncated responses
+    LLM JSON yanıtını doğrular ve ayrıştırır.
+    Sadece JSON kısmını çekip hataları tolere eder.
     """
     import os
     import re
     import json
-    
-    # DEBUG: Save raw response
-    try:
-        os.makedirs("testllm", exist_ok=True)
-        with open("testllm/raw_response.txt", "w", encoding="utf-8") as f:
-            f.write(response_text)
-    except Exception as e:
-        print(f"Error saving debug log: {e}")
-
-    if not response_text:
-        return None
-
-    # 1. PRE-CLEANING
-    clean_text = response_text.strip()
-    
-    # 2. MAIN JSON PARSING with AUTO-CLOSING
-    data = None
-    
-    # Try to extract the JSON part
-    json_match = re.search(r'(\{.*\})', clean_text, re.DOTALL)
-    candidate = json_match.group(1) if json_match else clean_text
-    
-    # Auto-closing logic for truncated responses
-    for suffix in ["", "}", '" }', '"] }', '"] } }', '", "neden": "Analiz yarım kaldı." }']:
-        try:
-            temp_candidate = candidate + suffix
-            data = json.loads(temp_candidate)
-            if data: break
-        except:
-            continue
-
-    # 3. FAILSAFE: REGEX EXTRACTION (If auto-closing failed)
-    if not data:
-        data = {}
-        # Lenovo/Flexible regex for key fields (handle missing/truncated values)
-        patterns = {
-            "karar": r'"karar":\s*"?([A-ZÇĞİÖŞÜ]*)', 
-            "guven": r'"guven":\s*(\d+)?',
-            "giris_fiyati": r'"giris_fiyati":\s*([\d\.]*)',
-            "zarar_kes": r'"zarar_kes":\s*([\d\.]*)',
-            "kar_al": r'"kar_al":\s*([\d\.]*)',
-            "risk_skoru": r'"risk_skoru":\s*(\d+)?',
-            "risk_odul_orani": r'"risk_odul_orani":\s*([\d\.]*)',
-            "beklenen_sure": r'"beklenen_sure":\s*"([^"]*)"?',
-            "neden": r'"neden":\s*"([^"]*)'
-        }
-        
-        for key, pattern in patterns.items():
-            match = re.search(pattern, response_text)
-            if match:
-                val = match.group(1)
-                try:
-                    if key in ["guven", "risk_skoru"]: data[key] = int(val)
-                    elif key in ["giris_fiyati", "zarar_kes", "kar_al", "risk_odul_orani"]: data[key] = float(val)
-                    else: data[key] = val
-                except: data[key] = val
-
-    if not data or "karar" not in data:
-        return None
-
-    # 4. FIELD MAPPING & NORMALIZATION
+    # Alanları eşle
     mapping = {
         "karar": "decision",
         "guven": "confidence",
         "giris_fiyati": "entry_price",
+        "iris_fiyati": "entry_price", # Model hatası toleransı
         "zarar_kes": "stop_loss",
         "kar_al": "take_profit",
         "risk_skoru": "risk_score",
-        "risk_odul_orani": "risk_reward_ratio",
+        "risk_odul_orani": "rr_ratio",
+        "analiz_vadesi": "timeframe",
         "beklenen_sure": "expected_duration",
         "neden": "reasoning"
     }
     
-    normalized = {}
-    for tr, en in mapping.items():
-        if tr in data and data[tr] is not None: 
-            normalized[en] = data[tr]
-        else: 
-            if "price" in en or "ratio" in en or "score" in en: normalized[en] = 0.0
-            elif en == "confidence": normalized[en] = 0
-            else: normalized[en] = "Analiz yarım kaldı (Otomatik kurtarıldı)"
+    # Gereksiz düşünce (think) bloklarını tamamen temizle
+    response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
     
-    # Ensure decision is present for translation
-    if "decision" not in normalized or normalized["decision"] is None:
-        normalized["decision"] = "PASS"
-
-    # 5. STRICT NUMERIC CASTING (Safety First)
-    numeric_floats = ["entry_price", "stop_loss", "take_profit", "risk_reward_ratio"]
-    numeric_ints = ["confidence", "risk_score"]
+    # Tüm JSON benzeri blokları bul ({...})
+    json_blocks = re.findall(r'(\{.*?\})', response_text, re.DOTALL)
     
-    for field in numeric_floats:
+    data = None
+    for block in json_blocks:
         try:
-            if normalized[field] is None: normalized[field] = 0.0
-            normalized[field] = float(normalized[field])
+            # Bloğu temizle ve ayrıştır
+            candidate = json.loads(block)
+            # Eğer anahtarların çoğu mevcutsa doğru bloğu bulduk demektir
+            matches = sum(1 for k in mapping.keys() if k in candidate)
+            if matches >= 5:
+                data = candidate
+                break
         except:
-            normalized[field] = 0.0
+            continue
             
-    for field in numeric_ints:
+    if not data:
+        # Son çare: Tüm metni temizle ve en baştan en sona parantezleri ara
         try:
-            if normalized[field] is None: normalized[field] = 0
-            normalized[field] = int(float(normalized[field])) # float->int handle 72.0 case
+            start = response_text.find('{')
+            end = response_text.rfind('}')
+            if start != -1 and end != -1:
+                data = json.loads(response_text[start:end+1])
         except:
-            normalized[field] = 0
-    
-    # 6. DECISION TRANSLATION
-    d = str(normalized["decision"]).upper()
-    if any(x in d for x in ["AL", "ALIM", "BUY"]): normalized["decision"] = "BUY"
-    elif any(x in d for x in ["SAT", "SATIM", "SELL"]): normalized["decision"] = "SELL"
-    else: normalized["decision"] = "PASS"
-    
-    return normalized
+            return None
 
+    if not data: return None
+
+    # Eğer model JSON içine JSON koyarsa (DeepSeek hatası)
+    # Bazen key olarak tüm şablonu yazıp value olarak sonucu koyuyor
+    # Bu durumda en uzun string değere sahip anahtarı veya iç içe objeyi bulmalıyız
+    if len(data) > 0:
+        for k, v in data.items():
+            if isinstance(v, dict) and sum(1 for subk in mapping.keys() if subk in v) >= 3:
+                data = v
+                break
+            if isinstance(v, str) and v.startswith("{"):
+                try:
+                    sub_data = json.loads(v)
+                    if sum(1 for subk in mapping.keys() if subk in sub_data) >= 3:
+                        data = sub_data
+                        break
+                except: pass
+    
+    result = {}
+    for tr, en in mapping.items():
+        val = data.get(tr)
+        # Sayısal alanları dönüştür
+        if en in ["entry_price", "stop_loss", "take_profit", "risk_reward_ratio"]:
+            try: result[en] = float(val) if val is not None else 0.0
+            except: result[en] = 0.0
+        elif en in ["confidence", "risk_score"]:
+            try: result[en] = int(val) if val is not None else 0
+            except: result[en] = 0
+        else:
+            result[en] = val if val is not None else "Belirtilmedi"
+
+    # Kararı standardize et
+    d = str(result.get("decision", "")).upper()
+    if "AL" in d or "BUY" in d: result["decision"] = "BUY"
+    elif "SAT" in d or "SELL" in d: result["decision"] = "SELL"
+    else: result["decision"] = "PASS"
+
+    return result

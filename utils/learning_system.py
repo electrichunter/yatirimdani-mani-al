@@ -152,6 +152,13 @@ class TradePerformanceTracker:
             conn.commit()
         
         logger.info(f"✅ Trade updated: ID {trade_id} - {outcome} ({profit_pips} pips)")
+
+    def get_pending_trades(self):
+        """Henüz sonuçlanmamış işlemleri getir"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT * FROM trade_history WHERE outcome = 'PENDING'")
+            return [dict(row) for row in cursor.fetchall()]
     
     def analyze_patterns(self, min_samples=10):
         """

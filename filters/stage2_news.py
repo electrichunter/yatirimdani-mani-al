@@ -1,7 +1,7 @@
 """
-Stage 2: News Sentiment Filter
-Fast SQL-based news retrieval without GPU usage
-Goal: Validate trade direction with fundamental data
+2. Aşama: Haber Duygu Filtresi
+GPU kullanımı gerektirmeyen hızlı SQL tabanlı haber çekme
+Hedef: İşlem yönünü temel verilerle doğrulamak
 """
 
 import config
@@ -13,8 +13,8 @@ logger = setup_logger("NewsFilter")
 
 class NewsFilter:
     """
-    News sentiment analysis and filtering
-    No GPU required, SQL queries only
+    Haber duygu analizi ve filtreleme
+    GPU gerektirmez, sadece SQL sorguları kullanır
     """
     
     def __init__(self):
@@ -23,24 +23,24 @@ class NewsFilter:
     
     def check_sentiment(self, symbol, direction, hours_lookback=None):
         """
-        Check if news sentiment aligns with trade direction
+        Haber duygusunun işlem yönüyle uyumlu olup olmadığını kontrol eder
         
-        Args:
-            symbol: Trading symbol (e.g., "EURUSD")
-            direction: Trade direction ("BUY" or "SELL")
-            hours_lookback: Hours to look back (default from config)
+        Argümanlar:
+            symbol: Ticari varlık (örn. "EURUSD")
+            direction: İşlem yönü ("BUY" veya "SELL")
+            hours_lookback: Geriye dönük bakılacak saat (varsayılanı config'den alır)
             
-        Returns:
-            Dict with pass/fail, sentiment score, and relevant news
+        Döner:
+            Geçti/kaldı durumu, duygu skoru ve ilgili haberleri içeren sözlük
         """
         if hours_lookback is None:
             hours_lookback = config.NEWS_LOOKBACK_HOURS
         
         try:
-            # Get aggregated sentiment
+            # Toplam duygu verisini al
             sentiment_data = self.db.get_aggregated_sentiment(symbol, hours_lookback)
             
-            # Get relevant news articles
+            # İlgili haber makalelerini al
             relevant_news = self.db.get_recent_news(
                 symbol=symbol,
                 hours_lookback=hours_lookback,
@@ -52,10 +52,10 @@ class NewsFilter:
             high_impact_count = sentiment_data["high_impact_count"]
             
             # ========================================
-            # DECISION LOGIC
+            # KARAR MANTIĞI
             # ========================================
             
-            # If no news, neutral pass (doesn't block trade)
+            # Haber yoksa, tarafsız geçiş (işlemi engellemez)
             if news_count == 0:
                 result = {
                     "pass": True,
@@ -67,16 +67,16 @@ class NewsFilter:
                 log_trade_decision(logger, symbol, 2, result)
                 return result
             
-            # Check sentiment alignment
+            # Duygu uyumunu kontrol et
             passed = False
             reason = ""
             
             if direction == "BUY":
-                # For BUY, we want positive sentiment or neutral
+                # ALIM için pozitif veya nötr duygu istenir
                 if avg_sentiment >= config.MIN_NEWS_SENTIMENT:
                     passed = True
                     reason = f"Yükseliş eğilimli duygu ({avg_sentiment:.1f}) ALIM'ı destekliyor"
-                elif avg_sentiment >= -20:  # Slightly negative is acceptable
+                elif avg_sentiment >= -20:  # Hafif negatif kabul edilebilir
                     passed = True
                     reason = f"Nötr duygu ({avg_sentiment:.1f}) ALIM ile uyuşmuyor"
                 else:
@@ -84,11 +84,11 @@ class NewsFilter:
                     reason = f"Düşüş eğilimli duygu ({avg_sentiment:.1f}) ALIM yönüyle çelişiyor"
             
             elif direction == "SELL":
-                # For SELL, we want negative sentiment or neutral
+                # SATIM için negatif veya nötr duygu istenir
                 if avg_sentiment <= -config.MIN_NEWS_SENTIMENT:
                     passed = True
                     reason = f"Düşüş eğilimli duygu ({avg_sentiment:.1f}) SATIM'ı destekliyor"
-                elif avg_sentiment <= 20:  # Slightly positive is acceptable
+                elif avg_sentiment <= 20:  # Hafif pozitif kabul edilebilir
                     passed = True
                     reason = f"Nötr duygu ({avg_sentiment:.1f}) SATIM ile uyuşmuyor"
                 else:
@@ -96,11 +96,11 @@ class NewsFilter:
                     reason = f"Yükseliş eğilimli duygu ({avg_sentiment:.1f}) SATIM yönüyle çelişiyor"
             
             else:
-                # NEUTRAL direction from Stage 1
+                # 1. Aşamadan NÖTR yön gelmişse
                 passed = False
                 reason = "1. Aşamadan net bir yön bilgisi yok"
             
-            # Prepare result
+            # Sonucu hazırla
             result = {
                 "pass": passed,
                 "sentiment_score": avg_sentiment,
@@ -112,14 +112,14 @@ class NewsFilter:
                         "impact": n["impact_level"],
                         "published_at": n["published_at"]
                     }
-                    for n in relevant_news[:5]  # Top 5 most recent
+                    for n in relevant_news[:5]  # En yeni 5 haber
                 ],
                 "news_count": news_count,
                 "high_impact_count": high_impact_count,
                 "reason": reason
             }
             
-            # Log the decision
+            # Kararı günlükle
             log_trade_decision(logger, symbol, 2, result)
             
             return result
@@ -134,42 +134,42 @@ class NewsFilter:
             }
     
     def add_sample_news(self):
-        """Add sample news for testing (remove in production)"""
+        """Test için örnek haberler ekler (üretimde kaldırılır)"""
         from datetime import datetime
         
-        logger.info("📰 Adding sample news data...")
+        logger.info("📰 Örnek haber verileri ekleniyor...")
         
         samples = [
             {
-                "title": "Fed Signals Continued Rate Hikes",
+                "title": "Fed Faiz Artırımlarının Devam Edeceği Sinyalini Verdi",
                 "source": "Bloomberg",
                 "published_at": datetime.now().isoformat(),
-                "sentiment_score": -60,  # Bearish for USD pairs
+                "sentiment_score": -60,  # USD çiftleri için düşüş eğilimli
                 "impact_level": "HIGH",
                 "symbols": "EURUSD,GBPUSD,USDJPY",
-                "category": "Central Bank"
+                "category": "Merkez Bankası"
             },
             {
-                "title": "ECB Holds Rates Steady, Dovish Outlook",
+                "title": "ECB Faizleri Sabit Tuttu, Güvercin Görünüm",
                 "source": "Reuters",
                 "published_at": datetime.now().isoformat(),
-                "sentiment_score": -40,  # Bearish for EUR
+                "sentiment_score": -40,  # EUR için düşüş eğilimli
                 "impact_level": "HIGH",
                 "symbols": "EURUSD,EURJPY,EURGBP",
-                "category": "Central Bank"
+                "category": "Merkez Bankası"
             },
             {
-                "title": "Gold Rallies on Safe Haven Demand",
+                "title": "Güvenli Liman Talebiyle Altın Yükseliyor",
                 "source": "CNBC",
                 "published_at": datetime.now().isoformat(),
-                "sentiment_score": 70,  # Bullish for XAUUSD
+                "sentiment_score": 70,  # XAUUSD için yükseliş eğilimli
                 "impact_level": "MEDIUM",
                 "symbols": "XAUUSD",
-                "category": "Commodities"
+                "category": "Emtialar"
             }
         ]
         
         for news in samples:
             self.db.add_news(**news)
         
-        logger.info(f"✅ Added {len(samples)} sample news articles")
+        logger.info(f"✅ {len(samples)} örnek haber makalesi eklendi")

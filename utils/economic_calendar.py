@@ -28,12 +28,15 @@ class EconomicCalendar:
         """
         Belirli bir sembol için gelecek ekonomik olayları al
         """
-        # Cache'i kontrol et ve gerekirse güncelle
         if self._should_update_cache():
             self._update_events_cache()
         
-        # Sembol için ülkeleri çıkar (Liste döner)
-        countries = self._extract_countries_from_symbol(symbol)
+        # ALL veya None durumunda tüm ülkeleri getir
+        if symbol is None or symbol.upper() == "ALL":
+            countries = ["USD", "EUR", "GBP", "JPY", "TRY", "CRYPTO"]
+        else:
+            countries = self._extract_countries_from_symbol(symbol)
+            
         if not countries:
             return []
         
@@ -101,7 +104,7 @@ class EconomicCalendar:
         events = [
             # US Events
             {
-                "date": (base_date + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=1)).strftime("%Y-%m-%d"),
                 "title": "ABD İşsizlik Başvuruları",
                 "country": "USD",
                 "impact": "MEDIUM",
@@ -110,7 +113,7 @@ class EconomicCalendar:
                 "category": "Employment"
             },
             {
-                "date": (base_date + timedelta(days=3)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=3)).strftime("%Y-%m-%d"),
                 "title": "ABD Tarım Dışı İstihdam (NFP)",
                 "country": "USD",
                 "impact": "HIGH",
@@ -119,7 +122,7 @@ class EconomicCalendar:
                 "category": "Employment"
             },
             {
-                "date": (base_date + timedelta(days=5)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=5)).strftime("%Y-%m-%d"),
                 "title": "Fed Faiz Kararı (FOMC)",
                 "country": "USD",
                 "impact": "HIGH",
@@ -130,7 +133,7 @@ class EconomicCalendar:
             
             # EUR Events
             {
-                "date": (base_date + timedelta(days=2)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=2)).strftime("%Y-%m-%d"),
                 "title": "ECB Başkanı Lagarde Konuşması",
                 "country": "EUR",
                 "impact": "HIGH",
@@ -139,7 +142,7 @@ class EconomicCalendar:
                 "category": "Central Bank"
             },
             {
-                "date": (base_date + timedelta(days=4)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=4)).strftime("%Y-%m-%d"),
                 "title": "Eurozone TÜFE",
                 "country": "EUR",
                 "impact": "HIGH",
@@ -150,7 +153,7 @@ class EconomicCalendar:
             
             # GBP Events
             {
-                "date": (base_date + timedelta(days=2)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=2)).strftime("%Y-%m-%d"),
                 "title": "İngiltere İşsizlik Oranı",
                 "country": "GBP",
                 "impact": "MEDIUM",
@@ -159,7 +162,7 @@ class EconomicCalendar:
                 "category": "Employment"
             },
             {
-                "date": (base_date + timedelta(days=6)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=6)).strftime("%Y-%m-%d"),
                 "title": "BoE Faiz Kararı",
                 "country": "GBP",
                 "impact": "HIGH",
@@ -170,7 +173,7 @@ class EconomicCalendar:
             
             # JPY Events
             {
-                "date": (base_date + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=1)).strftime("%Y-%m-%d"),
                 "title": "Japonya TÜFE",
                 "country": "JPY",
                 "impact": "HIGH",
@@ -181,7 +184,7 @@ class EconomicCalendar:
             
             # Crypto-related (US focused)
             {
-                "date": (base_date + timedelta(days=4)).strftime("%Y-%m-%d %H:%M"),
+                "date": (base_date + timedelta(days=4)).strftime("%Y-%m-%d"),
                 "title": "ABD Kripto Düzenleme Açıklaması (SEC)",
                 "country": "CRYPTO",
                 "impact": "HIGH",
@@ -224,8 +227,10 @@ class EconomicCalendar:
     
     def _parse_event_date(self, date_str: str) -> datetime:
         """Parse event date string to datetime object"""
-        try:
-            return datetime.strptime(date_str, "%Y-%m-%d %H:%M")
-        except:
-            # Fallback: 1 hafta sonrasına ata
-            return datetime.now() + timedelta(days=7)
+        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M"):
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        # Fallback: Uzak bir tarih
+        return datetime.now() + timedelta(days=30)

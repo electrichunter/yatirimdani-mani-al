@@ -1,11 +1,11 @@
 {
   "karar": "AL",
-  "guven": 85,
-  "giris_fiyati": 66.4800033569336,
-  "zarar_kes": 65.7000015258789,
-  "kar_al": 77.2000023841858,
-  "risk_skoru": 75,
-  "risk_odul_orani": 2.0,
-  "beklenen_sure": "Örn: 2 saat",
-  "neden": "Teknik Analiz (1. Aşama Puanı: 40/100): RSI: 77.27257594673326, MACD Sinyali: MACD histogram pozitif, Trend H1: BULLISH, Trend H4: BULLISH, Trend D1: BULLISH, Hacim: Hacim önemli değil. Haber Duygusu (2. Aşama): Ortalama Duygu: 0 (-100 düşüş eğilimli / +100 yükseliş eğilimli), Son Haber Sayısı: 0. Yaklaşan ekonomik olaylar (3 olay): 2025-12-20 18:18: ABD İşsizlik Başvuruları [MEDIUM Etki] Ülke: USD | Önceki: 210K | Tahmin: 215K, 2025-12-22 18:18: ABD Tarım Dışı İstihdam (NFP) [HIGH Etki] Ülke: USD | Önceki: 200K | Tahmin: 180K, 2025-12-24 18:18: Fed Faiz Kararı (FOMC) [HIGH Etki] Ülke: USD | Önceki: 5.50% | Tahmin: 5.50%. Strateji Alıntısı 1: RAG is disabled. Rely on technicals and patterns."
+  "guven": 50,
+  "giris_fiyati": 67.2300033569336,
+  "zarar_kes": 1.02,
+  "kar_al": 67.2400033569336,
+  "risk_skoru": 2,
+  "risk_odul_orani": 0.5,
+  "beklenen_sure": "1 saat",
+  "neden": "Teknik analizlere ve desenlere güvenmek suretiyle, RSI 85 seviyesi ve MACD sinyali pozitif, trend H1, H4 ve D1 semua bullish olduğu için, alımla fırsatını yakalamak mümkün. Yaklaşan haberler de bu kararı etkileyorsa da, son dakika gelişmeleri nedeniyle risk skoru 2 olarak belirlenmiştir. Risk/ödül oranı >= 1.5 olan bir pozisyon açılması gerektirir."
 }

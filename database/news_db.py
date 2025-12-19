@@ -1,6 +1,6 @@
 """
-News Database Manager
-Handles SQL operations for financial news storage and retrieval
+Haber Veritabanı Yöneticisi
+Finansal haberlerin saklanması ve geri çağrılması için SQL işlemlerini yönetir
 """
 
 import sqlite3
@@ -13,12 +13,12 @@ logger = setup_logger("NewsDB")
 
 
 class NewsDatabase:
-    """Manages news database operations"""
+    """Haber veritabanı işlemlerini yönetir"""
     
     def __init__(self, db_path=None):
         """
-        Args:
-            db_path: Path to SQLite database file
+        Argümanlar:
+            db_path: SQLite veritabanı dosyasının yolu
         """
         if db_path is None:
             db_path = config.NEWS_DB_PATH
@@ -27,29 +27,29 @@ class NewsDatabase:
         self.ensure_db_exists()
     
     def ensure_db_exists(self):
-        """Create database and tables if they don't exist"""
-        # Create directory if needed
+        """Veritabanı ve tablolar mevcut değilse oluşturur"""
+        # Gerekiyorsa dizini oluştur
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        # Read schema
+        # Şemayı oku
         schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
         
         try:
             with open(schema_path, 'r', encoding='utf-8') as f:
                 schema = f.read()
             
-            # Execute schema
+            # Şemayı uygula
             with sqlite3.connect(self.db_path) as conn:
                 conn.executescript(schema)
             
-            logger.info(f"✅ News database initialized at {self.db_path}")
+            logger.info(f"✅ Haber veritabanı {self.db_path} adresinde hazırlandı")
         
         except FileNotFoundError:
-            logger.warning(f"⚠️ Schema file not found at {schema_path}, creating basic table")
+            logger.warning(f"⚠️ {schema_path} adresinde şema dosyası bulunamadı, temel tablo oluşturuluyor")
             self.create_basic_schema()
     
     def create_basic_schema(self):
-        """Fallback: Create basic schema if schema.sql not found"""
+        """Yedek: schema.sql bulunamazsa temel şemayı oluşturur"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS news (
@@ -73,21 +73,21 @@ class NewsDatabase:
     def add_news(self, title, source, published_at, sentiment_score, impact_level, symbols, 
                  content=None, category=None, url=None):
         """
-        Add news article to database
+        Veritabanına haber makalesi ekler
         
-        Args:
-            title: News title
-            source: News source (e.g., "Reuters")
-            published_at: Publication datetime
-            sentiment_score: Sentiment score -100 to +100
-            impact_level: "HIGH", "MEDIUM", or "LOW"
-            symbols: Comma-separated symbols (e.g., "EURUSD,GBPUSD")
-            content: Optional full content
-            category: Optional category
-            url: Optional URL
+        Argümanlar:
+            title: Haber başlığı
+            source: Haber kaynağı (örn. "Reuters")
+            published_at: Yayınlanma tarihi ve saati
+            sentiment_score: Duygu skoru (-100 ile +100 arası)
+            impact_level: "HIGH" (Yüksek), "MEDIUM" (Orta) veya "LOW" (Düşük)
+            symbols: Virgülle ayrılmış semboller (örn. "EURUSD,GBPUSD")
+            content: İsteğe bağlı tam içerik
+            category: İsteğe bağlı kategori
+            url: İsteğe bağlı URL
             
-        Returns:
-            Inserted news ID
+        Döner:
+            Eklenen haberin ID'si
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
@@ -102,15 +102,15 @@ class NewsDatabase:
     
     def get_recent_news(self, symbol=None, hours_lookback=24, min_impact=None):
         """
-        Retrieve recent news articles
+        Yakın zamandaki haber makalelerini getirir
         
-        Args:
-            symbol: Filter by symbol (e.g., "EURUSD"), None for all
-            hours_lookback: How many hours to look back
-            min_impact: Minimum impact level(s), e.g., ["HIGH", "MEDIUM"]
+        Argümanlar:
+            symbol: Sembole göre filtreleme (örn. "EURUSD"), hepsi için None
+            hours_lookback: Kaç saat geriye bakılacak
+            min_impact: Minimum etki seviyeleri, örn. ["HIGH", "MEDIUM"]
             
-        Returns:
-            List of news articles as dicts
+        Döner:
+            Sözlükler listesi olarak haber makaleleri
         """
         cutoff_time = datetime.now() - timedelta(hours=hours_lookback)
         
@@ -122,12 +122,12 @@ class NewsDatabase:
         """
         params = [cutoff_time.isoformat()]
         
-        # Filter by symbol
+        # Sembole göre filtrele
         if symbol:
             query += " AND symbols LIKE ?"
             params.append(f"%{symbol}%")
         
-        # Filter by impact level
+        # Etki seviyesine göre filtrele
         if min_impact:
             placeholders = ','.join(['?' for _ in min_impact])
             query += f" AND impact_level IN ({placeholders})"
@@ -158,14 +158,14 @@ class NewsDatabase:
     
     def get_aggregated_sentiment(self, symbol, hours_lookback=24):
         """
-        Calculate aggregated sentiment for a symbol
+        Bir sembol için toplu duygu analizini hesaplar
         
-        Args:
-            symbol: Trading symbol
-            hours_lookback: Hours to look back
+        Argümanlar:
+            symbol: Ticari varlık
+            hours_lookback: Geriye dönük bakılacak saat
             
-        Returns:
-            Dict with average sentiment and news count
+        Döner:
+            Ortalama duygu ve haber sayısını içeren sözlük
         """
         news_list = self.get_recent_news(symbol, hours_lookback, min_impact=["HIGH", "MEDIUM"])
         
@@ -187,11 +187,11 @@ class NewsDatabase:
         }
     
     def clear_old_news(self, days_old=30):
-        """Delete news older than specified days"""
+        """Belirtilen günden eski haberleri siler"""
         cutoff = datetime.now() - timedelta(days=days_old)
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("DELETE FROM news WHERE published_at < ?", (cutoff.isoformat(),))
             conn.commit()
             
-            logger.info(f"🗑️ Deleted {cursor.rowcount} old news articles")
+            logger.info(f"🗑️ {cursor.rowcount} adet eski haber makalesi silindi")
