@@ -105,7 +105,7 @@ def process_symbol(symbol, components):
     
     if decision["decision"] in ["BUY", "SELL"]:
         # Risk & TP/SL
-        val = risk_manager.validate_trade(market_data["current_price"], decision["stop_loss"], decision["take_profit"], symbol, decision["direction"])
+        val = risk_manager.validate_trade(market_data["current_price"], decision["stop_loss"], decision["take_profit"], symbol, decision["decision"])
         
         signal = {
             "symbol": symbol, "decision": decision["decision"], "confidence": decision["confidence"],

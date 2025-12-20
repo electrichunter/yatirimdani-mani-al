@@ -145,6 +145,10 @@ def validate_llm_response(response_text):
         "neden": "reasoning"
     }
     
+    # Sayısal alanlarda matematiksel ifadeleri temizle (Model bazen '3.0 / 1.5' gibi yazıyor)
+    # JSON standartları gereği bu geçersizdir.
+    response_text = re.sub(r':\s*([0-9\.\s]+)\s*/\s*([0-9\.\s]+)', r': \1', response_text)
+    
     # Gereksiz düşünce (think) bloklarını tamamen temizle
     response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
     
@@ -196,7 +200,7 @@ def validate_llm_response(response_text):
     for tr, en in mapping.items():
         val = data.get(tr)
         # Sayısal alanları dönüştür
-        if en in ["entry_price", "stop_loss", "take_profit", "risk_reward_ratio"]:
+        if en in ["entry_price", "stop_loss", "take_profit", "rr_ratio"]:
             try: result[en] = float(val) if val is not None else 0.0
             except: result[en] = 0.0
         elif en in ["confidence", "risk_score"]:
