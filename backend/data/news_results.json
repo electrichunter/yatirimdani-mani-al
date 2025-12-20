@@ -1,0 +1,74 @@
+[
+  {
+    "title": "📅 [BEKLENEN] ABD İşsizlik Başvuruları",
+    "source": "USD",
+    "published_at": "2025-12-21",
+    "sentiment": 0,
+    "impact": "MEDIUM",
+    "symbols": "USD"
+  },
+  {
+    "title": "📅 [BEKLENEN] Japonya TÜFE",
+    "source": "JPY",
+    "published_at": "2025-12-21",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "JPY"
+  },
+  {
+    "title": "📅 [BEKLENEN] ECB Başkanı Lagarde Konuşması",
+    "source": "EUR",
+    "published_at": "2025-12-22",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "EUR"
+  },
+  {
+    "title": "📅 [BEKLENEN] İngiltere İşsizlik Oranı",
+    "source": "GBP",
+    "published_at": "2025-12-22",
+    "sentiment": 0,
+    "impact": "MEDIUM",
+    "symbols": "GBP"
+  },
+  {
+    "title": "📅 [BEKLENEN] ABD Tarım Dışı İstihdam (NFP)",
+    "source": "USD",
+    "published_at": "2025-12-23",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "USD"
+  },
+  {
+    "title": "📅 [BEKLENEN] Eurozone TÜFE",
+    "source": "EUR",
+    "published_at": "2025-12-24",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "EUR"
+  },
+  {
+    "title": "📅 [BEKLENEN] ABD Kripto Düzenleme Açıklaması (SEC)",
+    "source": "CRYPTO",
+    "published_at": "2025-12-24",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "CRYPTO"
+  },
+  {
+    "title": "📅 [BEKLENEN] Fed Faiz Kararı (FOMC)",
+    "source": "USD",
+    "published_at": "2025-12-25",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "USD"
+  },
+  {
+    "title": "📅 [BEKLENEN] BoE Faiz Kararı",
+    "source": "GBP",
+    "published_at": "2025-12-26",
+    "sentiment": 0,
+    "impact": "HIGH",
+    "symbols": "GBP"
+  }
+]

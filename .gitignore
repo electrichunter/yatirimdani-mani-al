@@ -20,37 +20,52 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
 venv/
 ENV/
 
+# Next.js / Node (frontend_v2)
+node_modules/
+frontend_v2/node_modules/
+frontend_v2/.next/
+frontend_v2/out/
+frontend_v2/next-env.d.ts
+frontend_v2/.DS_Store
+*.tsbuildinfo
+.npm
+
 # Environment Variables
 .env
-.env.dev
-.env.test
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
 
-# Database
+# Database & Logs
 database/*.db
 database/*.sqlite3
-
-# Logs
 logs/*.log
+*.log
 
-# RAG / AI Data
+# Trading Bot Data (Generated Outputs)
+data/web_results.json
+data/news_results.json
+data/simulated_trades.json
+data/position_plan.json
+data/analysis_archive.json
 data/embeddings/
 data/strategies/sample_*
-*.pkl
-*.json
-!testllm/raw_response.txt
+data/market_status.json
+data/monitoring_state.json
 
-# OS
+# AI / Cache
+*.pkl
+.chroma/
+
+# OS / IDE
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
-.project
-.pydevproject
-.settings/
+*.swp
+*.bak

@@ -1,0 +1,27 @@
+
+# Trading Strategy: Trend Following with RSI Confirmation
+
+## Entry Rules
+1. Identify strong trend using 20, 50, and 200 EMA alignment
+2. Wait for RSI to enter oversold (< 30) for buy or overbought (> 70) for sell
+3. Confirm with MACD crossover in the same direction
+4. Volume must be above average (1.5x or more)
+5. Check multiple timeframes (H1, H4, D1) for confluence
+
+## Risk Management
+- Risk only 1% of account per trade
+- Minimum Risk/Reward ratio: 2:1
+- Maximum 3 open positions at once
+- Stop loss below/above recent support/resistance
+
+## Exit Rules
+- Take profit at predetermined level (2x stop loss minimum)
+- Trail stop loss when in profit by 1x risk
+- Exit if opposite signal appears on higher timeframe
+
+## Key Principles
+- Patience is critical - wait for all conditions to align
+- Never trade against the major trend
+- Protect capital first, profits second
+- Quality over quantity - few perfect trades beat many mediocre ones
+        
