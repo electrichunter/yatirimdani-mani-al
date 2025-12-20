@@ -49,6 +49,7 @@ def select_mode():
         with open(config_file, 'r', encoding='utf-8') as f:
             fe_config = json.load(f)
         
+        
         config.DEMO_MODE = (fe_config.get('dataSource') == 'D')
         config.DRY_RUN = True
         config.USE_GEMINI_API = (fe_config.get('llm') == 'G')
