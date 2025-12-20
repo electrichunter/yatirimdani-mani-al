@@ -117,73 +117,58 @@ class YFinanceBroker:
             return None
 
     def get_current_price(self, symbol):
-        """En son fiyatı al"""
+        """En son mevcut fiyatı al (Piyasa kapalıysa son kapanışı getirir)"""
         try:
-            tried = [symbol]
             ticker = yf.Ticker(symbol)
-            # TRY 1: 1 Day / 1 Minute
+            price = None
+            
+            # 1. Yol: Son 5 günlük veriyi çek ve en sondaki gerçek kapanışı al (Hafta sonları için en güvenlisi)
             try:
-                df = ticker.history(period="1d", interval="1m")
+                df = ticker.history(period="5d", interval="1m")
                 if df is not None and not df.empty:
                     price = float(df['Close'].iloc[-1])
-            except Exception:
-                df = None
+            except:
+                pass
 
-            # TRY 2: 5 Days (Market might be closed)
             if price is None:
                 try:
-                    df = ticker.history(period="5d", interval="1m")
+                    df = ticker.history(period="5d")
                     if df is not None and not df.empty:
                         price = float(df['Close'].iloc[-1])
-                except Exception:
-                    df = None
-
-            # TRY 3: 1 Month (Aggressive Fallback)
-            if price is None:
-                try:
-                    df = ticker.history(period="1mo")
-                    if df is not None and not df.empty:
-                        price = float(df['Close'].iloc[-1])
-                except Exception:
-                    df = None
-
-            # fast_info güvenli biçimde oku
+                except:
+                    pass
+            
+            # 2. Yol: Eğer hala yoksa fast_info kullan
             if price is None:
                 try:
                     info = ticker.fast_info
-                    last = getattr(info, 'last_price', None) or getattr(info, 'last', None)
-                    if last is not None:
-                        price = float(last)
-                except Exception:
+                    price = getattr(info, 'last_price', None) or getattr(info, 'last', None)
+                except:
                     pass
 
-            # Eğer burada da yoksa fallback sembollerini dene
+            # 3. Yol: Alternatif sembolleri dene
             if price is None:
                 fallbacks = config.SYMBOL_FALLBACKS.get(symbol, [])
                 for alt in fallbacks:
                     try:
-                        self.logger.info(f"{symbol} için fiyat bulunamadı, alternatif {alt} deneniyor")
-                        tried.append(alt)
+                        self.logger.info(f"🔍 {symbol} için fiyat bulunamadı, {alt} deneniyor...")
                         alt_t = yf.Ticker(alt)
-                        alt_df = alt_t.history(period="1d", interval="1m")
+                        alt_df = alt_t.history(period="5d")
                         if alt_df is not None and not alt_df.empty:
                             price = float(alt_df['Close'].iloc[-1])
                             break
-                        alt_info = alt_t.fast_info
-                        alt_last = getattr(alt_info, 'last_price', None) or getattr(alt_info, 'last', None)
-                        if alt_last is not None:
-                            price = float(alt_last)
-                            break
-                    except Exception:
+                    except:
                         continue
 
             if price is not None:
-                return price
+                final_price = float(price)
+                self.logger.info(f"📍 {symbol} için son piyasa fiyatı alındı: {final_price:.5f}")
+                return final_price
 
-            self.logger.warning(f"{symbol} için fiyat alınamadı (denenen: {tried})")
+            self.logger.warning(f"❌ {symbol} için hiçbir kaynakta fiyat bulunamadı.")
             return None
         except Exception as e:
-            self.logger.error(f"{symbol} için fiyat alma hatası: {e}")
+            self.logger.error(f"❌ {symbol} fiyat alma hatası: {e}")
             return None
             
     def place_order(self, symbol, action, volume, entry=None, sl=None, tp=None, comment=""):

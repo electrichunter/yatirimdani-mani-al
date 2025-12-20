@@ -204,13 +204,15 @@ class UIFormatter:
         # Sadece gerekli alanları al ve kaydet
         formatted_news = []
         for n in news_list:
+            score = n.get("sentiment_score", 0)
             formatted_news.append({
                 "title": n.get("title", ""),
                 "source": n.get("source", ""),
-                "published_at": n.get("published_at", ""),
-                "sentiment": n.get("sentiment_score", 0),
+                "time": n.get("published_at", ""),
+                "sentiment_score": score,
                 "impact": n.get("impact_level", "LOW"),
-                "symbols": n.get("symbols", "")
+                "symbols": n.get("symbols", "").split(",") if isinstance(n.get("symbols"), str) else [],
+                "action": "LONG" if score > 20 else "SHORT" if score < -20 else "NEUTRAL"
             })
             
         with open(news_path, "w", encoding="utf-8") as f:

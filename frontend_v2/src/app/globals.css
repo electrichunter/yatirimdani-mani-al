@@ -1,77 +1,193 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
-  --background: #0a0a0b;
-  --foreground: #f8fafc;
-  --card: rgba(17, 17, 19, 0.8);
-  --card-border: rgba(255, 255, 255, 0.1);
-  --accent: #3b82f6;
-  --success: #10b981;
-  --danger: #ef4444;
-  --warning: #f59e0b;
+  --bg-color: #0d1117;
+  --card-bg: #161b22;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent-blue: #2f81f7;
+  --accent-green: #238636;
+  --accent-red: #da3633;
+  --accent-yellow: #d29922;
+  --border-color: #30363d;
+
+  /* Next settings maps */
+  --background: var(--bg-color);
+  --foreground: var(--text-primary);
+  --primary: var(--accent-blue);
+  --secondary: #7000ff;
+  --success: var(--accent-green);
+  --danger: var(--accent-red);
+  --text-muted: var(--text-secondary);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Outfit', sans-serif;
+  cursor: default;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  line-height: 1.6;
   overflow-x: hidden;
+  min-height: 100vh;
 }
 
-.glass {
-  background: var(--card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-.glow {
+/* GitHub Style Clean Card */
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
   position: relative;
+  overflow: hidden;
 }
 
-.glow::after {
-  content: '';
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  right: -2px;
-  bottom: -2px;
-  background: linear-gradient(45deg, #3b82f6, #10b981, #f59e0b, #3b82f6);
-  z-index: -1;
-  filter: blur(10px);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  border-radius: inherit;
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+  border-color: var(--accent-blue);
 }
 
-.glow:hover::after {
-  opacity: 0.5;
+.fire-button {
+  background: var(--accent-blue);
+  color: white !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
 
-.gradient-text {
-  background: linear-gradient(to right, #60a5fa, #34d399);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.fire-button:hover:not(:disabled) {
+  background: #388bfd;
+  box-shadow: 0 0 20px rgba(47, 129, 247, 0.4);
+}
+
+.fire-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.fire-button:disabled {
+  background: #30363d;
+  color: #8b949e !important;
+  cursor: not-allowed;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 260px;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  background: #010409;
+  border-right: 1px solid var(--border-color);
+  padding: 30px 15px;
+}
+
+.main-content {
+  margin-left: 260px;
+  padding: 40px;
+  max-width: 1300px;
+}
+
+/* Terminal View - VSCode Inspired */
+.terminal-window {
+  background: #010409;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: 'Fira Code', 'Courier New', monospace;
+  font-size: 13px;
+  color: #e6edf3;
+  padding: 15px;
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+.terminal-line {
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+}
+
+.terminal-info {
+  color: #3fb950;
+}
+
+.terminal-error {
+  color: #f85149;
+}
+
+.terminal-warn {
+  color: #d29922;
+}
+
+/* Status Badges */
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+
+.badge-green {
+  background: rgba(35, 134, 54, 0.1);
+  color: #3fb950;
+}
+
+.badge-red {
+  background: rgba(218, 54, 51, 0.1);
+  color: #f85149;
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0a0b;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: #30363d;
+  border-radius: 10px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+button {
+  cursor: pointer;
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
 }
